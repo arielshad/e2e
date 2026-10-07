@@ -54,6 +54,7 @@ import { createToolLoopExecutor, defineTool } from '../../src/agent/public.ts';
 import type { Report } from '../../src/index.ts';
 import type { LanguageModelV2, LanguageModelV3, LanguageModelV4 } from '@ai-sdk/provider';
 import { chatgpt } from '../../src/oauth/chatgpt.ts';
+import { claudeCode } from '../../src/oauth/claude-code.ts';
 import { copilot } from '../../src/oauth/copilot.ts';
 import { grok } from '../../src/oauth/grok.ts';
 import { opencodeConsole } from '../../src/oauth/opencode-console.ts';
@@ -535,6 +536,13 @@ copilot('gpt-4.1', {});
 grok('grok-4', {});
 // @ts-expect-error a constructor takes the model id alone
 opencodeConsole('go/deepseek-v4.1-flash', {});
+// claudeCode: the CLI owns the sign-in; its options run the process, never a credential or an endpoint.
+claudeCode('sonnet') satisfies LanguageModelV4;
+claudeCode('opus[1m]', { maxConcurrent: 2, effort: 'low', env: { ANTHROPIC_API_KEY: 'sk' }, executable: '/usr/local/bin/claude' }) satisfies LanguageModelV4;
+// @ts-expect-error effort is one of the CLI's levels
+claudeCode('sonnet', { effort: 'extreme' });
+// @ts-expect-error there is no apiKey option; an API key goes through env
+claudeCode('sonnet', { apiKey: 'sk' });
 
 // agents.<name>: the judge slot beside model, and every budget in one entry.
 ({ targets: [{ engine }], agents: { default: { model, judge: model, judgmentTimeout: 30_000, maxSteps: 5, maxModelCalls: 10, maxObservationBytes: 1000, maxInputTokens: 32_000 } } }) satisfies E2EConfig;
