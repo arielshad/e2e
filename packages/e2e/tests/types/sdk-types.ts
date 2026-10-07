@@ -523,7 +523,7 @@ if (runEvent.type === 'explore') {
   if (runEvent.progress.phase === 'finding') runEvent.progress.finding.severity satisfies 1 | 2 | 3 | 4 | 5;
 }
 
-// e2e/oauth/*: a constructor takes the model id alone; the login comes from e2e login or E2E_OAUTH_CREDENTIALS.
+// e2e/oauth/*: a login constructor takes the model id alone; the login comes from e2e login or E2E_OAUTH_CREDENTIALS.
 chatgpt('gpt-5.6-luna') satisfies LanguageModelV4;
 copilot('gpt-4.1') satisfies LanguageModelV4;
 grok('grok-4') satisfies LanguageModelV4;
@@ -538,11 +538,13 @@ grok('grok-4', {});
 opencodeConsole('go/deepseek-v4.1-flash', {});
 // claudeCode: the CLI owns the sign-in; its options run the process, never a credential or an endpoint.
 claudeCode('sonnet') satisfies LanguageModelV4;
-claudeCode('opus[1m]', { maxConcurrent: 2, effort: 'low', env: { ANTHROPIC_API_KEY: 'sk' }, executable: '/usr/local/bin/claude' }) satisfies LanguageModelV4;
+claudeCode('opus[1m]', { effort: 'low', env: { ANTHROPIC_API_KEY: 'sk' }, executable: '/usr/local/bin/claude' }) satisfies LanguageModelV4;
 // @ts-expect-error effort is one of the CLI's levels
 claudeCode('sonnet', { effort: 'extreme' });
 // @ts-expect-error there is no apiKey option; an API key goes through env
 claudeCode('sonnet', { apiKey: 'sk' });
+// @ts-expect-error concurrency is the run's workers, one model call each
+claudeCode('sonnet', { maxConcurrent: 2 });
 
 // agents.<name>: the judge slot beside model, and every budget in one entry.
 ({ targets: [{ engine }], agents: { default: { model, judge: model, judgmentTimeout: 30_000, maxSteps: 5, maxModelCalls: 10, maxObservationBytes: 1000, maxInputTokens: 32_000 } } }) satisfies E2EConfig;

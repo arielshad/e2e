@@ -8,7 +8,7 @@
 
 import type { E2EConfig } from 'e2e';
 import { web } from '@e2e-dev/web';
-import { gateway } from 'ai';
+import { agentModel } from './agent-model.ts';
 
 export default {
   projectId: 'dev.e2e.testbed-dogfood-edge',
@@ -26,7 +26,7 @@ export default {
   timeout: 300_000,
   agents: {
     default: {
-      model: gateway(process.env.E2E_MODEL ?? 'openai/gpt-6-luna-fast'),
+      model: agentModel('openai/gpt-6-luna-fast'),
       judgmentTimeout: 90_000,
     },
   },

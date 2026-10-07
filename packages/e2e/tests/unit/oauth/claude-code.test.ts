@@ -1,12 +1,11 @@
-import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { APICallError, type JSONSchema7, type LanguageModelV4CallOptions } from '@ai-sdk/provider';
-import { generateText, jsonSchema, Output, tool } from 'ai';
+import { generateText, jsonSchema, NoObjectGeneratedError, Output, tool } from 'ai';
+import { Ajv } from 'ajv';
 import { afterEach, describe, expect, it } from 'vitest';
 import { claudeCode } from '../../../src/oauth/claude-code.ts';
-import { acquireSlot } from '../../../src/oauth/process-slots.ts';
 import { cliEnvironment, toCliRequest, type CliResult } from '../../../src/oauth/providers/claude-code.ts';
 
 const dirs: string[] = [];
@@ -102,7 +101,7 @@ describe('claudeCode', () => {
     expect(result.steps[0]?.usage).toMatchObject({ inputTokens: 352, outputTokens: 7, inputTokenDetails: { cacheReadTokens: 300, cacheWriteTokens: 40, noCacheTokens: 12 } });
 
     const [first, second] = cli.calls();
-    expect(first?.argv).toEqual(expect.arrayContaining(['--print', '--tools', '', '--strict-mcp-config', '--safe-mode', '--no-session-persistence']));
+    expect(first?.argv).toEqual(expect.arrayContaining(['--print', '--tools', '', '--strict-mcp-config', '--safe-mode', '--setting-sources=', '--no-session-persistence']));
     expect(flag(first!.argv, '--model')).toBe('sonnet');
     expect(flag(first!.argv, '--effort')).toBe('low');
     expect(first?.system).toMatch(/^You operate a UI\.\n\nThe conversation so far is replayed/);
@@ -151,7 +150,7 @@ describe('claudeCode', () => {
       CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat',
       CLAUDE_CODE_USE_BEDROCK: '1',
     };
-    expect(cliEnvironment(parent, { thinkingTokens: 0, maxOutputTokens: undefined }, undefined)).toEqual({
+    expect(cliEnvironment(parent, { thinking: 0, maxOutputTokens: undefined }, undefined)).toEqual({
       PATH: '/bin',
       HOME: '/home/me',
       ANTHROPIC_BASE_URL: 'https://proxy.example',
@@ -160,19 +159,24 @@ describe('claudeCode', () => {
       CLAUDE_CODE_USE_BEDROCK: '1',
       MAX_THINKING_TOKENS: '0',
     });
-    expect(cliEnvironment({}, { thinkingTokens: 4000, maxOutputTokens: 900 }, { ANTHROPIC_API_KEY: 'sk-mine' })).toEqual({
+    // As on the API, the thinking budget comes on top of the answer's.
+    expect(cliEnvironment({}, { thinking: 4000, maxOutputTokens: 900 }, { ANTHROPIC_API_KEY: 'sk-mine' })).toEqual({
       MAX_THINKING_TOKENS: '4000',
-      CLAUDE_CODE_MAX_OUTPUT_TOKENS: '900',
+      CLAUDE_CODE_MAX_OUTPUT_TOKENS: '4900',
       ANTHROPIC_API_KEY: 'sk-mine',
     });
+    // Adaptive thinking is the CLI's and the model's to size.
+    expect(cliEnvironment({ MAX_THINKING_TOKENS: '9' }, { thinking: 'adaptive', maxOutputTokens: 900 }, undefined)).toEqual({ CLAUDE_CODE_MAX_OUTPUT_TOKENS: '900' });
 
     const options = (providerOptions: LanguageModelV4CallOptions['providerOptions']): LanguageModelV4CallOptions => ({
       prompt: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
       ...(providerOptions === undefined ? {} : { providerOptions }),
     });
-    expect(toCliRequest(options(undefined)).thinkingTokens).toBe(0);
-    expect(toCliRequest(options({ anthropic: { thinking: { type: 'enabled', budgetTokens: 2048 } } })).thinkingTokens).toBe(2048);
-    expect(toCliRequest(options({ anthropic: { thinking: { type: 'disabled' } } })).thinkingTokens).toBe(0);
+    expect(toCliRequest(options(undefined)).thinking).toBe(0);
+    expect(toCliRequest(options({ anthropic: { thinking: { type: 'enabled', budgetTokens: 2048 } } })).thinking).toBe(2048);
+    expect(toCliRequest(options({ anthropic: { thinking: { type: 'enabled' } } })).thinking).toBe(1024);
+    expect(toCliRequest(options({ anthropic: { thinking: { type: 'adaptive' } } })).thinking).toBe('adaptive');
+    expect(toCliRequest(options({ anthropic: { thinking: { type: 'disabled' } } })).thinking).toBe(0);
 
     const cli = fakeCli([{ result: { result: 'hello', usage: USAGE } }]);
     const previous = { CLAUDECODE: process.env['CLAUDECODE'], ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'] };
@@ -279,71 +283,55 @@ describe('claudeCode', () => {
     await expect.poll(() => alive(pid)).toBe(false);
   });
 
-  it('rejects a maxConcurrent that is not a positive integer', () => {
-    expect(() => claudeCode('sonnet', { maxConcurrent: 0 })).toThrow(/maxConcurrent must be a positive integer/);
-  });
-});
-
-describe('acquireSlot', () => {
-  it('lets `limit` callers hold at once and queues the rest in arrival order', async () => {
-    const dir = tempDir('e2e-slots-');
-    const order: string[] = [];
-    const first = await acquireSlot(dir, 2, undefined);
-    const second = await acquireSlot(dir, 2, undefined);
-    const third = acquireSlot(dir, 2, undefined).then((release) => (order.push('third'), release));
-    const fourth = acquireSlot(dir, 2, undefined).then((release) => (order.push('fourth'), release));
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(order).toEqual([]);
-    first();
-    await expect.poll(() => order).toEqual(['third']);
-    second();
-    await expect.poll(() => order).toEqual(['third', 'fourth']);
-    (await third)();
-    (await fourth)();
-    expect(readdirSync(dir)).toEqual([]);
-  });
-
-  it('caps holders across processes, as test workers are', async () => {
-    const dir = tempDir('e2e-slots-');
-    const log = path.join(tempDir('e2e-slots-log-'), 'log');
-    const slots = path.resolve('src/oauth/process-slots.ts');
-    const child = `
-      const { appendFileSync } = await import('node:fs');
-      const { acquireSlot } = await import(${JSON.stringify(slots)});
-      const release = await acquireSlot(${JSON.stringify(dir)}, 2, undefined);
-      appendFileSync(${JSON.stringify(log)}, '+\\n');
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      appendFileSync(${JSON.stringify(log)}, '-\\n');
-      release();`;
-    const { spawn } = await import('node:child_process');
-    await Promise.all(
-      Array.from({ length: 5 }, () => new Promise((resolve) => spawn(process.execPath, ['--input-type=module', '-e', child], { stdio: 'inherit' }).on('close', resolve))),
-    );
-    let holding = 0;
-    let most = 0;
-    for (const line of readFileSync(log, 'utf8').trim().split('\n')) {
-      holding += line === '+' ? 1 : -1;
-      most = Math.max(most, holding);
-    }
-    expect(readFileSync(log, 'utf8').match(/\+/g)).toHaveLength(5);
-    expect(most).toBe(2);
-    expect(readdirSync(dir)).toEqual([]);
+  it('keeps every tool\'s $refs resolving once the tools share one schema, a recursive input included', () => {
+    const tree: JSONSchema7 = {
+      type: 'object',
+      properties: { label: { type: 'string' }, children: { type: 'array', items: { $ref: '#' } } },
+      required: ['label'],
+      additionalProperties: false,
+    };
+    const form: JSONSchema7 = {
+      type: 'object',
+      properties: { field: { $ref: '#/definitions/field' }, other: { $ref: '#/$defs/field' } },
+      required: ['field'],
+      definitions: { field: { type: 'string', minLength: 2 } },
+      $defs: { field: { type: 'number' } },
+    };
+    const { schema } = toCliRequest({
+      prompt: [{ role: 'user', content: [{ type: 'text', text: 'go' }] }],
+      tools: [
+        { type: 'function', name: 'outline', inputSchema: tree },
+        { type: 'function', name: 'fill', inputSchema: form },
+      ],
+      toolChoice: { type: 'required' },
+    });
+    const validate = new Ajv({ strict: false }).compile(schema as Record<string, unknown>);
+    const calls = (...items: unknown[]) => ({ tool_calls: items });
+    expect(validate(calls({ name: 'outline', input: { label: 'a', children: [{ label: 'b', children: [{ label: 'c' }] }] } }))).toBe(true);
+    expect(validate(calls({ name: 'outline', input: { label: 'a', children: [{ children: [] }] } }))).toBe(false);
+    expect(validate(calls({ name: 'fill', input: { field: 'ok', other: 3 } }))).toBe(true);
+    expect(validate(calls({ name: 'fill', input: { field: 'x' } }))).toBe(false);
+    expect(validate(calls({ name: 'fill', input: { field: 'ok', other: 'three' } }))).toBe(false);
   });
 
-  it('frees the place of a process that is gone, and leaves the queue when the wait is aborted', async () => {
-    const dir = tempDir('e2e-slots-');
-    const gone = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' }).stdout;
-    writeFileSync(path.join(dir, '000000000000'), gone);
-    const release = await acquireSlot(dir, 1, undefined);
-    expect(readdirSync(dir)).toHaveLength(1);
+  it('answers off-grammar when the CLI gave up on the schema, so the caller\'s repair runs instead of a provider failure', async () => {
+    const gaveUp = { subtype: 'error_max_structured_output_retries', is_error: true, usage: USAGE };
+    const judge = fakeCli([{ text: 'The total reads $41.', result: gaveUp }]);
+    const judgment = generateText({
+      model: claudeCode('sonnet', { executable: judge.executable }),
+      prompt: 'Claim: the total is $42.',
+      output: Output.object({ schema: jsonSchema({ type: 'object', properties: { verdict: { type: 'string' } }, required: ['verdict'] }) }),
+    });
+    await expect(judgment).rejects.toSatisfy((error) => NoObjectGeneratedError.isInstance(error));
 
-    const controller = new AbortController();
-    const waiting = acquireSlot(dir, 1, controller.signal);
-    await expect.poll(() => readdirSync(dir).length).toBe(2);
-    controller.abort(new Error('cancelled'));
-    await expect(waiting).rejects.toThrow('cancelled');
-    expect(readdirSync(dir)).toHaveLength(1);
-    release();
+    const act = fakeCli([{ text: 'I cannot find it.', result: gaveUp }]);
+    const turn = await claudeCode('sonnet', { executable: act.executable }).doGenerate({
+      prompt: [{ role: 'user', content: [{ type: 'text', text: 'tap Save' }] }],
+      tools: [{ type: 'function', name: 'tap', inputSchema: { type: 'object' } }],
+      toolChoice: { type: 'required' },
+    });
+    expect(turn.content).toEqual([{ type: 'text', text: 'I cannot find it.' }]);
+    expect(turn.finishReason).toEqual({ unified: 'other', raw: 'error_max_structured_output_retries' });
   });
 });
 

@@ -5,7 +5,8 @@ icon: "id-card"
 ---
 
 Use an existing subscription without a separate API key. Choose your plan
-in `e2e init`, install dependencies, then sign in:
+in `e2e init`, install dependencies, then sign in (a Claude plan is set up
+by hand, see [Claude Code](#claude-code)):
 
 | Subscription | Command |
 | --- | --- |
@@ -217,13 +218,15 @@ full model id. `opus[1m]` selects the 1M-token context window; raise the
 agent's `maxInputTokens` (default 64000) to use it.
 
 Each call starts the CLI isolated from your own Claude Code setup: no
-built-in tools, MCP servers, CLAUDE.md, skills, hooks, or saved session. It
-also drops `ANTHROPIC_API_KEY`, which the CLI would bill instead of your
-plan, and the variables of a Claude Code session you run `e2e` from. The
-agent's tools go to the CLI as a structured-output schema and come back as
-tool calls `e2e` runs itself, so secrets, budgets, and recording work as
-with any other model. Thinking is off unless
-`providerOptions.anthropic.thinking` enables it, as on the API.
+built-in tools, MCP servers, CLAUDE.md, skills, hooks, settings files, or
+saved session. It also drops `ANTHROPIC_API_KEY`, which the CLI would bill
+instead of your plan, and the variables of a Claude Code session you run
+`e2e` from. The agent's tools go to the CLI as a structured-output schema and
+come back as tool calls `e2e` runs itself, so secrets, budgets, and recording
+work as with any other model. `providerOptions.anthropic.thinking` works as
+on the API: off unless set, `{ type: 'enabled', budgetTokens }` (1024 when
+the budget is left out) on top of the answer's tokens, and
+`{ type: 'adaptive' }` left to the model.
 
 Keep the API model for CI and pick the CLI locally:
 
@@ -238,10 +241,13 @@ const model = process.env.E2E_CLAUDE_CODE ? claudeCode('sonnet') : anthropic('cl
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| `maxConcurrent` | no cap | Most `claude` processes running at once across all workers on the machine. Each worker makes one model call at a time, so `--workers` already caps them; set this to run more workers than CLI processes. Waiting for a turn counts against the step's timeout. |
 | `effort` | the CLI's | `--effort` for every call: `low`, `medium`, `high`, `xhigh`, or `max`. |
 | `env` | none | Variables added to the CLI's environment, such as `ANTHROPIC_API_KEY` to bill an API key through the CLI. |
-| `executable` | `claude` on `PATH` | The CLI to run. |
+| `executable` | `claude` on `PATH` | The CLI to run. On Windows, install Claude Code with the native installer: Node cannot start the `claude.cmd` that npm installs. |
+
+Each worker makes one model call at a time, so `--workers` (or `workers` in
+the config) is how many `claude` processes run at once. Lower it if your plan
+rate-limits a parallel run.
 
 Starting the CLI adds about two seconds to each model call, and each call
 carries a few hundred tokens of the CLI's own context (working directory,

@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import {
   APICallError,
   type JSONSchema7,
+  type JSONSchema7Definition,
   type LanguageModelV4CallOptions,
   type LanguageModelV4Content,
   type LanguageModelV4FinishReason,
@@ -44,8 +45,8 @@ export interface CliRequest {
   readonly schema: JSONSchema7 | undefined;
   /** Output tokens the call may spend, when the caller capped them. */
   readonly maxOutputTokens: number | undefined;
-  /** Thinking budget in tokens; 0 is off, as on the API. */
-  readonly thinkingTokens: number;
+  /** Thinking budget in tokens, 0 for off, or `adaptive` to leave it to the CLI and the model. */
+  readonly thinking: number | 'adaptive';
   readonly warnings: readonly SharedV4Warning[];
 }
 
@@ -116,7 +117,7 @@ export function toCliRequest(options: LanguageModelV4CallOptions): CliRequest {
           ? options.responseFormat.schema
           : undefined,
     maxOutputTokens: options.maxOutputTokens,
-    thinkingTokens: thinkingBudget(options.providerOptions),
+    thinking: thinkingSetting(options.providerOptions),
     warnings,
   };
 }
@@ -127,6 +128,8 @@ export function toCliRequest(options: LanguageModelV4CallOptions): CliRequest {
  * (`required`, or one named tool) needs at least one call.
  */
 function toolCallSchema(tools: readonly LanguageModelV4FunctionTool[], forced: boolean): JSONSchema7 {
+  const definitions: Record<string, JSONSchema7Definition> = {};
+  const branches = tools.map((tool) => toolBranch(tool, definitions));
   return {
     type: 'object',
     properties: {
@@ -136,33 +139,73 @@ function toolCallSchema(tools: readonly LanguageModelV4FunctionTool[], forced: b
           ? 'The tool calls to make now, in order. At least one.'
           : 'The tool calls to make now, in order. Empty when the answer is the text before this output.',
         ...(forced ? { minItems: 1 } : {}),
-        items: { anyOf: tools.map(toolBranch) },
+        items: { anyOf: branches },
       },
     },
     required: ['tool_calls'],
     additionalProperties: false,
+    ...(Object.keys(definitions).length === 0 ? {} : { definitions }),
   };
 }
 
-function toolBranch(tool: LanguageModelV4FunctionTool): JSONSchema7 {
+/**
+ * One tool as a branch of the union. A `$ref` resolves against the root it
+ * sits in, which is now the union rather than the tool's own schema, so the
+ * tool's definitions move to the union's root under the tool's name and its
+ * refs follow them. A ref to the tool's own root (a recursive input) points
+ * at the input, moved into the definitions too.
+ */
+function toolBranch(tool: LanguageModelV4FunctionTool, definitions: Record<string, JSONSchema7Definition>): JSONSchema7 {
   // A nested `$schema` is noise to the model; the tool's own keywords stay.
-  const { $schema: _dialect, ...input } = tool.inputSchema;
+  const { $schema: _dialect, definitions: own, $defs, ...body } = tool.inputSchema;
+  const prefix = `${tool.name}.`;
+  const root = `#/definitions/${prefix}input`;
+  let selfReferencing = false;
+  const retarget = (ref: string): string => {
+    if (ref.startsWith('#/definitions/')) return `#/definitions/${prefix}${ref.slice('#/definitions/'.length)}`;
+    if (ref.startsWith('#/$defs/')) return `#/definitions/${prefix}$defs.${ref.slice('#/$defs/'.length)}`;
+    if (ref !== '#' && !ref.startsWith('#/')) return ref;
+    selfReferencing = true;
+    return `${root}${ref.slice(1)}`;
+  };
+  const input = retargetRefs(body, retarget);
+  for (const [key, schema] of Object.entries(own ?? {})) definitions[`${prefix}${key}`] = retargetRefs(schema, retarget);
+  for (const [key, schema] of Object.entries($defs ?? {})) definitions[`${prefix}$defs.${key}`] = retargetRefs(schema, retarget);
+  if (selfReferencing) definitions[`${prefix}input`] = input;
   return {
     type: 'object',
     ...(tool.description === undefined ? {} : { description: tool.description }),
-    properties: { name: { const: tool.name }, input },
+    properties: { name: { const: tool.name }, input: selfReferencing ? { $ref: root } : input },
     required: ['name', 'input'],
     additionalProperties: false,
   };
 }
 
-/** `providerOptions.anthropic.thinking`, read the way the API reads it: off unless enabled with a budget. */
-function thinkingBudget(providerOptions: LanguageModelV4CallOptions['providerOptions']): number {
+/** `schema` with every `$ref` string passed through `retarget`. */
+function retargetRefs<Schema>(schema: Schema, retarget: (ref: string) => string): Schema {
+  if (typeof schema !== 'object' || schema === null) return schema;
+  if (Array.isArray(schema)) return schema.map((member: unknown) => retargetRefs(member, retarget)) as Schema;
+  return Object.fromEntries(
+    Object.entries(schema).map(([key, member]) => [key, key === '$ref' && typeof member === 'string' ? retarget(member) : retargetRefs(member, retarget)]),
+  ) as Schema;
+}
+
+/**
+ * `providerOptions.anthropic.thinking`, read the way `@ai-sdk/anthropic`
+ * reads it: off unless set, `enabled` with its budget (1024 when none is
+ * given), and `adaptive` left to the model.
+ */
+function thinkingSetting(providerOptions: LanguageModelV4CallOptions['providerOptions']): number | 'adaptive' {
   const thinking = providerOptions?.['anthropic']?.['thinking'];
   if (typeof thinking !== 'object' || thinking === null || Array.isArray(thinking)) return 0;
   const { type, budgetTokens } = thinking as { type?: unknown; budgetTokens?: unknown };
-  return type === 'enabled' && typeof budgetTokens === 'number' && budgetTokens > 0 ? Math.floor(budgetTokens) : 0;
+  if (type === 'adaptive') return 'adaptive';
+  if (type !== 'enabled') return 0;
+  return typeof budgetTokens === 'number' && budgetTokens > 0 ? Math.floor(budgetTokens) : DEFAULT_THINKING_BUDGET;
 }
+
+/** The budget `@ai-sdk/anthropic` sends for `thinking: { type: 'enabled' }` without one. */
+const DEFAULT_THINKING_BUDGET = 1024;
 
 /** A single user turn, sent as it is: what a judgment call looks like. */
 function plainUserTurn(conversation: readonly LanguageModelV4Message[], warnings: SharedV4Warning[]): CliContentBlock[] {
@@ -265,6 +308,9 @@ function mergeText(blocks: readonly CliContentBlock[]): CliContentBlock[] {
   return merged;
 }
 
+/** The `result` subtype of a run whose model kept answering outside the schema until the CLI stopped retrying. */
+const STRUCTURED_OUTPUT_GAVE_UP = 'error_max_structured_output_retries';
+
 /** The call's content, finish reason, and usage, from one finished run. */
 export function fromCliOutput(
   request: CliRequest,
@@ -272,13 +318,19 @@ export function fromCliOutput(
   executable: string,
 ): { content: LanguageModelV4Content[]; finishReason: LanguageModelV4FinishReason; usage: LanguageModelV4Usage } {
   const { result } = output;
-  if (result.is_error === true || result.subtype !== 'success') {
-    throw cliFailure(result.result ?? `the CLI ended with ${result.subtype}`, executable);
-  }
   const usage = toUsage(result);
   const raw = result.stop_reason ?? undefined;
   const text = output.text.trim();
   const lead: LanguageModelV4Content[] = text === '' ? [] : [{ type: 'text', text }];
+  if (result.subtype === STRUCTURED_OUTPUT_GAVE_UP) {
+    // The model never produced output the schema accepts. Answered as a model
+    // that replied off-grammar, with text and no calls, so the caller's repair
+    // runs: a judgment's output-invalid round, the act loop's next turn.
+    return { content: lead, finishReason: { unified: 'other', raw: result.subtype }, usage };
+  }
+  if (result.is_error === true || result.subtype !== 'success') {
+    throw cliFailure(result.result ?? `the CLI ended with ${result.subtype}`, executable);
+  }
   switch (request.answer) {
     case 'text':
       return { content: [{ type: 'text', text: result.result ?? output.text }], finishReason: { unified: 'stop', raw }, usage };
@@ -352,7 +404,7 @@ const KEPT_CLAUDE_VARIABLES = /^CLAUDE_(?:CONFIG_DIR|CODE_OAUTH_TOKEN|CODE_USE_[
  */
 export function cliEnvironment(
   parent: NodeJS.ProcessEnv,
-  request: Pick<CliRequest, 'thinkingTokens' | 'maxOutputTokens'>,
+  request: Pick<CliRequest, 'thinking' | 'maxOutputTokens'>,
   extra: Readonly<Record<string, string>> | undefined,
 ): Record<string, string> {
   const env: Record<string, string> = {};
@@ -361,20 +413,27 @@ export function cliEnvironment(
     if (key.startsWith('CLAUDE_') && !KEPT_CLAUDE_VARIABLES.test(key)) continue;
     env[key] = value;
   }
-  env['MAX_THINKING_TOKENS'] = String(request.thinkingTokens);
-  if (request.maxOutputTokens !== undefined) env['CLAUDE_CODE_MAX_OUTPUT_TOKENS'] = String(request.maxOutputTokens);
+  const budget = request.thinking === 'adaptive' ? 0 : request.thinking;
+  if (request.thinking !== 'adaptive') env['MAX_THINKING_TOKENS'] = String(budget);
+  // As on the API, the thinking budget comes on top of the answer's.
+  if (request.maxOutputTokens !== undefined) env['CLAUDE_CODE_MAX_OUTPUT_TOKENS'] = String(request.maxOutputTokens + budget);
   return { ...env, ...extra };
 }
 
-/** Flags every call runs with: no tools, MCP servers, customizations, or saved session of the CLI's own. */
-const ISOLATION_FLAGS = ['--tools', '', '--strict-mcp-config', '--safe-mode', '--no-session-persistence'] as const;
+/**
+ * Flags every call runs with: no tools, MCP servers, customizations, or
+ * saved session of the CLI's own. `--safe-mode` keeps the sign-in but still
+ * applies the `env` of the user's settings files; no setting sources keeps
+ * those from overriding this call's thinking and output limits.
+ */
+const ISOLATION_FLAGS = ['--tools', '', '--strict-mcp-config', '--safe-mode', '--setting-sources=', '--no-session-persistence'] as const;
 
 /**
- * Linux caps one argument at 128 KiB, and `--json-schema` takes the schema
- * inline only. A larger schema fails here with its size named rather than
- * as a spawn error.
+ * `--json-schema` takes the schema inline only. Linux caps one argument at
+ * 128 KiB and Windows a whole command line at 32 KiB; a larger schema fails
+ * here with its size named rather than as a spawn error.
  */
-const MAX_SCHEMA_BYTES = 120_000;
+const MAX_SCHEMA_BYTES = process.platform === 'win32' ? 30_000 : 120_000;
 
 /** The CLI's arguments for one call. */
 export function cliArguments(

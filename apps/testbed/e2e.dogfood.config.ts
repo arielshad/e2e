@@ -8,7 +8,8 @@
 import type { E2EConfig } from 'e2e';
 import { web } from '@e2e-dev/web';
 import { defineTool } from 'e2e/agent';
-import { gateway, tool } from 'ai';
+import { agentModel } from './agent-model.ts';
+import { tool } from 'ai';
 import { z } from 'zod';
 
 const APP_URL = 'http://127.0.0.1:4310';
@@ -57,7 +58,7 @@ export default {
   timeout: 300_000,
   agents: {
     default: {
-      model: gateway(process.env.E2E_MODEL ?? 'openai/gpt-6-luna-fast'),
+      model: agentModel('openai/gpt-6-luna-fast'),
       tools: { seed_expenses: seedExpenses, reset_expenses: resetExpenses },
       system:
         'The app under test is a small expense-claims tool. Saves are asynchronous: ' +

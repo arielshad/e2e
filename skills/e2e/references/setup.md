@@ -86,8 +86,8 @@ Switching to a Claude plan: set `model: claudeCode('sonnet')` from
 `e2e/oauth/claude-code`; it runs the signed-in `claude` CLI once per model call,
 isolated from the user's Claude Code setup, and needs no extra package. Ids are
 what `claude --model` takes (`sonnet`, `opus`, `opus[1m]` with `maxInputTokens`
-raised for the 1M context). Options: `maxConcurrent` (CLI processes across all
-workers), `effort`, `env`, `executable`. Local only: in CI use an API provider.
+raised for the 1M context). Options: `effort`, `env`, `executable`; `--workers`
+is how many CLI processes run at once. Local only: in CI use an API provider.
 
 ## The config
 
