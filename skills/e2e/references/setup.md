@@ -74,6 +74,7 @@ key, or a local endpoint. Authenticate:
 | GitHub Copilot | `npx e2e login github-copilot` (GitHub CLI signed in, or your own `--client-id`) |
 | OpenCode Console (OpenCode Zen and OpenCode Go) | `npx e2e login opencode-console` (approve the device code, pick the workspace) |
 | SuperGrok or X Premium+ | `npx e2e login spacexai` |
+| Claude Pro or Max (local runs) | Sign in to the Claude Code CLI by running `claude`; no `e2e login` |
 | Claude Max or Team | No `e2e login`: link a Claude Console organization in claude.ai for the plan's monthly API credits (Max: Settings > Billing; Team: an Owner under Organization settings > Billing), create an API key in it, set `ANTHROPIC_API_KEY`, use `anthropic('<id>')` from `@ai-sdk/anthropic` |
 | Vercel AI Gateway | Set `AI_GATEWAY_API_KEY`, or sign in to the Vercel CLI and `npx vercel link`; without the key `gateway()` uses a Vercel OIDC token |
 | OpenRouter | Set `OPENROUTER_API_KEY` |
@@ -104,6 +105,13 @@ subscription: the workspace's through the login, or yours through
 `OPENCODE_API_KEY`. `npx e2e models opencode-console` lists the ids, tagged
 Zen or Go, through the key when it is set. In CI, set a Console service account
 API key or an OpenCode Go subscription API key as `OPENCODE_API_KEY`.
+
+Switching to a Claude plan: set `model: claudeCode('sonnet')` from
+`e2e/oauth/claude-code`; it runs the signed-in `claude` CLI once per model call,
+isolated from the user's Claude Code setup, and needs no extra package. Ids are
+what `claude --model` takes (`sonnet`, `opus`, `opus[1m]` with `maxInputTokens`
+raised for the 1M context). Options: `maxConcurrent` (CLI processes across all
+workers), `effort`, `env`, `executable`. Local only: in CI use an API provider.
 
 ## The config
 

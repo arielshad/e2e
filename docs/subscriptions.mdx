@@ -1,6 +1,6 @@
 ---
 title: Subscriptions
-description: Use your ChatGPT, GitHub Copilot, OpenCode Console, or SuperGrok subscription, or your Claude Max or Team plan's API credits, for agent steps.
+description: Use your ChatGPT, GitHub Copilot, OpenCode Console, or SuperGrok subscription, your Claude plan through the Claude Code CLI, or your Claude Max or Team plan's API credits, for agent steps.
 icon: "id-card"
 "og:image": "https://e2e.tester.army/docs/images/og/subscriptions.png?v=174d49a0e9"
 "twitter:image": "https://e2e.tester.army/docs/images/og/subscriptions.png?v=174d49a0e9"
@@ -15,6 +15,7 @@ the plan's model in `e2e.config.ts`.
 | GitHub Copilot | `npx e2e login github-copilot` |
 | OpenCode Console (OpenCode Zen and OpenCode Go) | `npx e2e login opencode-console` |
 | SuperGrok or X Premium+ | `npx e2e login spacexai` |
+| Claude Pro or Max, through the Claude Code CLI on your machine | Sign in to the Claude Code CLI by running `claude` |
 | Claude Max or Team (Claude Code) | API key, paid from the plan's monthly API credits, not its usage limits |
 
 ## Set up
@@ -22,6 +23,10 @@ the plan's model in `e2e.config.ts`.
 For a new project, run `e2e init` and select your plan
 ([quickstart](/quickstart)). For an existing project, install the packages,
 sign in, and set `agents: { default: agent }` in `e2e.config.ts`.
+
+A Claude plan also works through the [Claude Code CLI](#claude-code) on your
+machine, for local runs. In CI, use an [API provider](/models) or the plan's
+API credits.
 
 <Tabs>
   <Tab title="ChatGPT">
@@ -129,6 +134,16 @@ import { grok } from 'e2e/oauth/grok';
 const agent = { model: grok('grok-4') };
 ```
   </Tab>
+  <Tab title="Claude Code">
+Install [Claude Code](https://code.claude.com/docs) and sign in by running
+`claude`. `e2e` has no login of its own for it and needs no extra package.
+
+```ts title="Model setup"
+import { claudeCode } from 'e2e/oauth/claude-code';
+
+const agent = { model: claudeCode('sonnet') };
+```
+  </Tab>
   <Tab title="Claude Max or Team">
 Claude plans have no sign-in for other apps. For a new project, select
 `None` for the model gateway in `e2e init`. Then:
@@ -205,6 +220,46 @@ key serves, the same key `opencodeConsole()` uses in place of the login.
   models your workspace turned off, and Zen's free models. Key
   `providerOptions` by `opencode` for chat completions models, else by
   `openai`, `anthropic`, or `google`.
+
+## Claude Code
+
+`claudeCode()` runs the `claude` CLI once per model call, so agent steps,
+assertions, and `e2e explore` spend the plan the CLI is signed in with. The
+model id is anything `claude --model` takes: `sonnet`, `opus`, `haiku`, or a
+full model id. `opus[1m]` selects the 1M-token context window; raise the
+agent's `maxInputTokens` (default 64000) to use it.
+
+Each call starts the CLI isolated from your own Claude Code setup: no
+built-in tools, MCP servers, CLAUDE.md, skills, hooks, or saved session. It
+also drops `ANTHROPIC_API_KEY`, which the CLI would bill instead of your
+plan, and the variables of a Claude Code session you run `e2e` from. The
+agent's tools go to the CLI as a structured-output schema and come back as
+tool calls `e2e` runs itself, so secrets, budgets, and recording work as
+with any other model. Thinking is off unless
+`providerOptions.anthropic.thinking` enables it, as on the API.
+
+Keep the API model for CI and pick the CLI locally:
+
+```ts title="e2e.config.ts"
+import { anthropic } from '@ai-sdk/anthropic';
+import { claudeCode } from 'e2e/oauth/claude-code';
+
+const model = process.env.E2E_CLAUDE_CODE ? claudeCode('sonnet') : anthropic('claude-sonnet-5-5');
+```
+
+`claudeCode()` takes a second argument:
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `maxConcurrent` | no cap | Most `claude` processes running at once across all workers on the machine. Each worker makes one model call at a time, so `--workers` already caps them; set this to run more workers than CLI processes. Waiting for a turn counts against the step's timeout. |
+| `effort` | the CLI's | `--effort` for every call: `low`, `medium`, `high`, `xhigh`, or `max`. |
+| `env` | none | Variables added to the CLI's environment, such as `ANTHROPIC_API_KEY` to bill an API key through the CLI. |
+| `executable` | `claude` on `PATH` | The CLI to run. |
+
+Starting the CLI adds about two seconds to each model call, and each call
+carries a few hundred tokens of the CLI's own context (working directory,
+model name, date). A usage limit on your plan fails the step with
+`MODEL_PROVIDER_FAILED` and is not retried.
 
 ## Sign-in help
 

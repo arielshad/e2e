@@ -1,6 +1,6 @@
 import type { E2EConfig } from 'e2e';
 import { web } from '@e2e-dev/web';
-import { gateway } from 'ai';
+import { agentModel } from './agent-model.ts';
 
 /**
  * Live trace view: `E2E_DEVTOOLS=1` registers the AI SDK devtools recorder,
@@ -25,7 +25,7 @@ if (process.env.E2E_DEVTOOLS !== undefined && process.env.E2E_DEVTOOLS !== '') {
  * Not part of CI: every test spends real model calls, and act flows and
  * judgments are structurally comparable across models, not identical.
  * `E2E_MODEL` overrides the pinned model so one suite dogfoods several
- * providers.
+ * providers; `E2E_MODEL=claude-code/sonnet` runs the local `claude` CLI.
  */
 export default {
   projectId: 'dev.e2e.testbed-agent',
@@ -46,7 +46,7 @@ export default {
   timeout: 300_000,
   agents: {
     default: {
-      model: gateway(process.env.E2E_MODEL ?? 'openai/gpt-6-luna-fast'),
+      model: agentModel('openai/gpt-6-luna-fast'),
       judgmentTimeout: 90_000,
       // The drawn keypad flow is one step of a dozen taps, each a model turn.
       maxSteps: 40,

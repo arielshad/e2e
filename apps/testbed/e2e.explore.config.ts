@@ -1,6 +1,6 @@
 import type { E2EConfig } from 'e2e';
 import { web } from '@e2e-dev/web';
-import { gateway } from 'ai';
+import { agentModel } from './agent-model.ts';
 
 /**
  * `e2e explore` against the bug garden (`app/bug-garden.mjs`), a bookshop
@@ -11,7 +11,7 @@ import { gateway } from 'ai';
  *
  * `EXPLORE_APP_URL` points the target at an already running garden (the bench
  * starts one per run); without it the config starts one on port 4275.
- * `E2E_MODEL` picks the model.
+ * `E2E_MODEL` picks the model; `claude-code/<model>` runs the local `claude` CLI.
  */
 
 const url = process.env.EXPLORE_APP_URL;
@@ -35,7 +35,7 @@ export default {
   actionTimeout: 60_000,
   agents: {
     default: {
-      model: gateway(process.env.E2E_MODEL ?? 'openai/gpt-6-luna-fast'),
+      model: agentModel('openai/gpt-6-luna-fast'),
       context: 'Bookshelf is a small online bookshop: a catalog, a cart, checkout, an account page, an orders page, and sign-in.',
     },
   },
