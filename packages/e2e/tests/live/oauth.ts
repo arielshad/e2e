@@ -6,6 +6,7 @@
  *   npx tsx tests/live/oauth.ts grok grok-4
  *   npx tsx tests/live/oauth.ts opencode-console deepseek-v4.1-flash
  *   npx tsx tests/live/oauth.ts opencode-console go/deepseek-v4.1-flash
+ *   npx tsx tests/live/oauth.ts claude-code sonnet   (the signed-in `claude` CLI; no e2e login)
  */
 import { generateText, tool } from 'ai';
 import { z } from 'zod';
@@ -17,8 +18,9 @@ const constructors: Record<string, (id: string) => Promise<LanguageModelV4>> = {
   chatgpt: async (id) => (await import('../../src/oauth/chatgpt.ts')).chatgpt(id),
   grok: async (id) => (await import('../../src/oauth/grok.ts')).grok(id),
   'opencode-console': async (id) => (await import('../../src/oauth/opencode-console.ts')).opencodeConsole(id),
+  'claude-code': async (id) => (await import('../../src/oauth/claude-code.ts')).claudeCode(id),
 };
-const defaults: Record<string, string> = { copilot: 'claude-sonnet-5', chatgpt: 'gpt-6-luna', grok: 'grok-4', 'opencode-console': 'deepseek-v4.1-flash' };
+const defaults: Record<string, string> = { copilot: 'claude-sonnet-5', chatgpt: 'gpt-6-luna', grok: 'grok-4', 'opencode-console': 'deepseek-v4.1-flash', 'claude-code': 'sonnet' };
 const construct = constructors[kind];
 if (construct === undefined) throw new Error(`unknown kind ${kind}; one of ${Object.keys(constructors).join(', ')}`);
 const model = await construct(modelId ?? defaults[kind]!);

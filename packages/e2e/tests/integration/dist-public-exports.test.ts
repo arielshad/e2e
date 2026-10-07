@@ -46,4 +46,12 @@ describe('the built declarations', () => {
     expect(mentions(text, options), options).toBe(false);
     expect(mentions(text, 'CredentialStore')).toBe(false);
   });
+
+  it('oauth/claude-code.d.ts declares a constructor whose options run the CLI, never a credential', () => {
+    const text = declaration('oauth/claude-code.d.ts');
+    expect(text).toMatch(/export declare function claudeCode\(modelId: string, options\?: ClaudeCodeOptions\): LanguageModelV4;/u);
+    for (const option of ['executable', 'effort', 'env']) expect(text).toMatch(new RegExp(`readonly ${option}\\?:`, 'u'));
+    expect(text.match(/readonly \w+\?:/gu)).toHaveLength(3);
+    expect(mentions(text, 'CredentialStore')).toBe(false);
+  });
 });

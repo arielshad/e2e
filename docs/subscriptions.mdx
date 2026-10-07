@@ -1,11 +1,12 @@
 ---
 title: Subscriptions
-description: Use your ChatGPT, GitHub Copilot, OpenCode Console, or SuperGrok subscription for agent steps.
+description: Use your ChatGPT, Claude, GitHub Copilot, OpenCode Console, or SuperGrok subscription for agent steps.
 icon: "id-card"
 ---
 
 Use an existing subscription without a separate API key. Choose your plan
-in `e2e init`, install dependencies, then sign in:
+in `e2e init`, install dependencies, then sign in (a Claude plan is set up
+by hand, see [Claude Code](#claude-code)):
 
 | Subscription | Command |
 | --- | --- |
@@ -13,12 +14,13 @@ in `e2e init`, install dependencies, then sign in:
 | GitHub Copilot | `npx e2e login github-copilot` |
 | OpenCode Console (OpenCode Zen and OpenCode Go) | `npx e2e login opencode-console` |
 | SuperGrok or X Premium+ | `npx e2e login spacexai` |
+| Claude Pro or Max, on your machine | Sign in to the Claude Code CLI by running `claude` |
 
 Follow the terminal prompts, then run `npx e2e run`. Agent calls use your
 plan's usage limits. For a new project, start with the [quickstart](/quickstart).
 
-Claude subscriptions are not supported. To use Claude, configure an
-[API provider](/models) or a model available through your Copilot plan.
+A Claude plan works through the [Claude Code CLI](#claude-code) installed on
+your machine, for local runs. In CI, configure an [API provider](/models).
 
 ## Set up an existing project
 
@@ -126,6 +128,16 @@ import { grok } from 'e2e/oauth/grok';
 const agent = { model: grok('grok-4') };
 ```
   </Tab>
+  <Tab title="Claude Code">
+Install [Claude Code](https://code.claude.com/docs) and sign in by running
+`claude`. `e2e` has no login of its own for it and needs no extra package.
+
+```ts title="Model setup"
+import { claudeCode } from 'e2e/oauth/claude-code';
+
+const agent = { model: claudeCode('sonnet') };
+```
+  </Tab>
 </Tabs>
 
 Set `agents: { default: agent }` in `e2e.config.ts`. Choose a model
@@ -196,6 +208,51 @@ beside `@ai-sdk/openai-compatible`; `e2e init` adds all four. Set
 `providerOptions` under the key of that API: `opencode` for chat completions
 models, on Zen and Go alike, and `openai`, `anthropic`, or `google` for the
 others.
+
+## Claude Code
+
+`claudeCode()` runs the `claude` CLI once per model call, so agent steps,
+assertions, and `e2e explore` spend the plan the CLI is signed in with. The
+model id is anything `claude --model` takes: `sonnet`, `opus`, `haiku`, or a
+full model id. `opus[1m]` selects the 1M-token context window; raise the
+agent's `maxInputTokens` (default 64000) to use it.
+
+Each call starts the CLI isolated from your own Claude Code setup: no
+built-in tools, MCP servers, CLAUDE.md, skills, hooks, settings files, or
+saved session. It also drops `ANTHROPIC_API_KEY`, which the CLI would bill
+instead of your plan, and the variables of a Claude Code session you run
+`e2e` from. The agent's tools go to the CLI as a structured-output schema and
+come back as tool calls `e2e` runs itself, so secrets, budgets, and recording
+work as with any other model. `providerOptions.anthropic.thinking` works as
+on the API: off unless set, `{ type: 'enabled', budgetTokens }` (1024 when
+the budget is left out) on top of the answer's tokens, and
+`{ type: 'adaptive' }` left to the model.
+
+Keep the API model for CI and pick the CLI locally:
+
+```ts title="e2e.config.ts"
+import { anthropic } from '@ai-sdk/anthropic';
+import { claudeCode } from 'e2e/oauth/claude-code';
+
+const model = process.env.E2E_CLAUDE_CODE ? claudeCode('sonnet') : anthropic('claude-sonnet-5-5');
+```
+
+`claudeCode()` takes a second argument:
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `effort` | the CLI's | `--effort` for every call: `low`, `medium`, `high`, `xhigh`, or `max`. |
+| `env` | none | Variables added to the CLI's environment, such as `ANTHROPIC_API_KEY` to bill an API key through the CLI. |
+| `executable` | `claude` on `PATH` | The CLI to run. On Windows, install Claude Code with the native installer: Node cannot start the `claude.cmd` that npm installs. |
+
+Each worker makes one model call at a time, so `--workers` (or `workers` in
+the config) is how many `claude` processes run at once. Lower it if your plan
+rate-limits a parallel run.
+
+Starting the CLI adds about two seconds to each model call, and each call
+carries a few hundred tokens of the CLI's own context (working directory,
+model name, date). A usage limit on your plan fails the step with
+`MODEL_PROVIDER_FAILED` and is not retried.
 
 ## Sign-in help
 

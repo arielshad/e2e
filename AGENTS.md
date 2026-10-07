@@ -53,7 +53,11 @@ suites that consume the built packages the way a user would.
     and `models` commands and the `e2e/oauth/*` model constructors; each
     constructor subpath is the place its `@ai-sdk/*` optional peers are
     imported, and the Copilot constructor loads `@ai-sdk/openai` lazily, only
-    for the Responses models, so the CLI boots without any of them). The
+    for the Responses models, so the CLI boots without any of them).
+    `claudeCode()` is the one constructor with no login of its own: it runs
+    the user's signed-in `claude` CLI once per model call
+    (`providers/claude-code.ts` translates the call, the tools as one
+    `--json-schema`), so it imports no provider package. The
     constructors and the CLI
     are the whole public surface: the flows, stores, and fetch behind them
     are module-private, not a library for other products. `tests/live/` holds hand-run
@@ -549,7 +553,7 @@ trees, on both platforms, without a device.
   needs `node scripts/restore-peer-ranges.ts` after it, or `pnpm check` fails
   on the pin.
 - The runner publishes as the unscoped `e2e` (entry points `e2e`, `e2e/agent`,
-  `e2e/engine`, `e2e/oauth/chatgpt`, `e2e/oauth/copilot`, `e2e/oauth/grok`, `e2e/oauth/opencode-console`; the bin is `e2e` too); engines, reporters, and integrations publish public
+  `e2e/engine`, `e2e/oauth/chatgpt`, `e2e/oauth/claude-code`, `e2e/oauth/copilot`, `e2e/oauth/grok`, `e2e/oauth/opencode-console`; the bin is `e2e` too); engines, reporters, and integrations publish public
   under the `@e2e-dev` scope. The `@e2edev` scope (moved to `@e2e-dev` on
   2026-09-28), `@e2edev/e2e`, `@e2edev/oauth` (folded into `e2e/oauth` on
   2026-09-21), and `@e2e-dev/integrations` (moved to `@e2e-dev/kernel` on

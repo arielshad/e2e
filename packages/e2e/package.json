@@ -55,6 +55,10 @@
       "types": "./dist/oauth/chatgpt.d.ts",
       "default": "./dist/oauth/chatgpt.js"
     },
+    "./oauth/claude-code": {
+      "types": "./dist/oauth/claude-code.d.ts",
+      "default": "./dist/oauth/claude-code.js"
+    },
     "./oauth/copilot": {
       "types": "./dist/oauth/copilot.d.ts",
       "default": "./dist/oauth/copilot.js"

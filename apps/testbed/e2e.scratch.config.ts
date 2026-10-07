@@ -1,6 +1,6 @@
 import type { E2EConfig } from 'e2e';
 import { web } from '@e2e-dev/web';
-import { gateway } from 'ai';
+import { agentModel } from './agent-model.ts';
 
 /**
  * Live trace view: `E2E_DEVTOOLS=1` registers the AI SDK devtools recorder,
@@ -48,7 +48,7 @@ export default {
   actionTimeout: 3000,
   agents: {
     default: {
-      model: gateway(process.env.E2E_MODEL ?? 'openai/gpt-6-luna-fast'),
+      model: agentModel('openai/gpt-6-luna-fast'),
       // The drawn keypad flow is one step of a dozen taps, each a model turn.
       maxSteps: 40,
       maxModelCalls: 60,
