@@ -12,17 +12,17 @@
 import type { ViewportPoint, ViewportSize } from '../engine/surface.ts';
 import { redactNode, type NodeRedaction, type RedactedNode } from './observation.ts';
 import {
-  bound,
   isNodeAction,
   MAX_TRACE_DESCRIPTOR_CHARS,
   MAX_TRACE_SUMMARY_CHARS,
+  targetLabel,
   type NodeActionName,
   type PointActionName,
   type TraceTargetDescriptor,
   type TracePosition,
 } from '../cache/trace.ts';
 import { sanitizeText } from '../internal/errors.ts';
-import { collapseText } from '../internal/text.ts';
+import { bound, collapseText } from '../internal/text.ts';
 import type { ScrollDirection } from '../types.ts';
 
 /** One committed grammar action, addressed by the node it actually ran against. */
@@ -295,19 +295,13 @@ export function describeTarget(node: RedactedNode): TraceTargetDescriptor | unde
 }
 
 function describeForSummary(target: TraceTargetDescriptor | undefined): string {
-  const where = describeWhere(target);
+  const where = target === undefined ? 'the screen' : targetLabel(target);
   const placed = target?.within === undefined ? where : `${where} in ${JSON.stringify(bound(target.within, 40))}`;
   return target?.position === undefined
     ? placed
     : `${placed} (${target.position.index + 1} of ${target.position.of})`;
 }
 
-function describeWhere(target: TraceTargetDescriptor | undefined): string {
-  if (target === undefined) return 'the screen';
-  const label = target.name ?? target.text ?? target.placeholder ?? target.testId ?? '';
-  const role = target.role ?? 'node';
-  return label === '' ? role : `${role} ${JSON.stringify(bound(label, 40))}`;
-}
 
 function quote(value: string): string {
   return JSON.stringify(bound(value, 40));

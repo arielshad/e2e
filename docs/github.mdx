@@ -57,17 +57,16 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-artifacts
-          path: .e2e/artifacts
+          path: .e2e/results
 ```
 
 Upload artifacts even when a retry passes. Each failure's evidence links open
-the run's Artifacts section; inside the download, every test has a directory
-named after it and the agent that ran it
-(`web/tests_billing.e2e.ts__upgrades/default/attempt-0/`), so keep
-`path: .e2e/artifacts` and the download lines up with the report. A
-`--last-failed` rerun keeps the first run's directories and puts its own
-under `rerun-1/`, so a flaky test's failed attempt still links to its own
-files. A project
+the run's Artifacts section; inside the download, every test has its own
+directory (`billing-upgrades-to-pro-1a2b3c4d5e6f7a8b/attempt-1/`), so keep
+`path: .e2e/results` and the download lines up with the report. A
+`--last-failed` rerun keeps the first run's files and puts its own under
+each test's `rerun-1/`, so a flaky test's failed attempt still links to its
+own files. A project
 below the checkout root, such as `packages/e2e-tests`, gets source links under
 that path. The checkout root is the nearest directory holding `.git` inside
 `GITHUB_WORKSPACE`, so `actions/checkout` with a `path` input works too.
@@ -90,7 +89,7 @@ that path. The checkout root is the nearest directory holding `.git` inside
 - Turn 9: `tap({"target":"n41"})` → Screen changed: /checkout/plan. New: #n50 heading "Free plan"
 - Screen: `/checkout/plan`
 
-Evidence: [screenshot](https://github.com/acme/shop/actions/runs/123#artifacts), [video](https://github.com/acme/shop/actions/runs/123#artifacts), [trace](https://github.com/acme/shop/actions/runs/123#artifacts)
+Evidence: [screenshot](https://github.com/acme/shop/actions/runs/123#artifacts), [video](https://github.com/acme/shop/actions/runs/123#artifacts)
 
 <details>
 <summary>⚠️ 1 flaky test passed on a retry</summary>
@@ -102,7 +101,7 @@ Evidence: [screenshot](https://github.com/acme/shop/actions/runs/123#artifacts),
 
 > the invitation email took too long
 
-Evidence: [screenshot](https://github.com/acme/shop/actions/runs/123#artifacts), [trace](https://github.com/acme/shop/actions/runs/123#artifacts)
+Evidence: [screenshot](https://github.com/acme/shop/actions/runs/123#artifacts)
 </details>
 
 <details>
@@ -175,8 +174,6 @@ The reporter never changes the run's status or exit code. When it cannot
 post, it says why in one row under the summary:
 
 ```
-       Report  .e2e/report.json
-
        GitHub  not posted: set GITHUB_TOKEN in the step's env (GITHUB_TOKEN: ${{ github.token }}); written to the job summary
 ```
 

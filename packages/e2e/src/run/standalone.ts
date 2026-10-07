@@ -26,7 +26,7 @@ import type { EnginePrepareResult } from '../engine/index.ts';
 import type { ProcessPool } from './process-pool.ts';
 import type { AppProcesses } from './managed-process.ts';
 import { PreparedEngines, recordingNotices, startDeclaredProcesses, validateEngine } from './provision.ts';
-import { attemptRecording, type AttemptRecording, type ResolvedRecording } from '../internal/recording-modes.ts';
+import { attemptVideo, type ResolvedRecording, type VideoRecording } from '../internal/recording-modes.ts';
 import { redactForSession, sessionSecrecy } from './secrecy.ts';
 import { SessionStore } from './sessions.ts';
 import { outputLayout } from './output.ts';
@@ -67,7 +67,7 @@ export interface StandaloneAttempt {
   /** Absolute artifact directory of this attempt. */
   readonly artifactsDir: string;
   /**
-   * Ends the attempt: stops any trace, closes the session, disposes the
+   * Ends the attempt: stops any video, closes the session, disposes the
    * engine, stops the app processes, and returns the cleanup failures instead
    * of throwing them, so a host can always finish tearing down.
    */
@@ -89,7 +89,7 @@ export async function openStandaloneAttempt(options: StandaloneAttemptOptions): 
   // A session says what it will not record, as a run does at plan time.
   const grade = validateEngine(target);
   for (const message of recordingNotices([{ target, pairs: [] }], new Map([[target.name, grade]]))) notice(target.name, message);
-  const recordings = { trace: sessionRecording(target.trace), video: sessionRecording(target.video) };
+  const video = sessionRecording(target.video);
   // The secret registry is process-wide, as in a run: `credentials.user()` and `secrets.get()`
   // resolve while the attempt is open.
   const releaseRegistry = holdSecretRegistry(config);
@@ -123,7 +123,7 @@ export async function openStandaloneAttempt(options: StandaloneAttemptOptions): 
     config,
     target,
     runId,
-    artifactsRoot: layout.artifacts,
+    artifactsRoot: layout.results,
     sessionStore,
     headed: options.headed,
     workerSlot: 0,
@@ -144,8 +144,8 @@ export async function openStandaloneAttempt(options: StandaloneAttemptOptions): 
     ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress }),
   });
   const artifacts = createAttemptArtifacts({
-    artifactsRoot: layout.artifacts,
-    segments: [target.name, 'sessions', attemptId],
+    artifactsRoot: layout.results,
+    segments: ['mcp', `${target.name}-${attemptId}`],
     attemptId,
     currentStepId: () => steps.currentStepId,
     ...(config.artifactStore === undefined ? {} : { store: config.artifactStore }),
@@ -169,7 +169,8 @@ export async function openStandaloneAttempt(options: StandaloneAttemptOptions): 
   };
 
   try {
-    session = await executor.launchSession({ session: undefined, recordings }, attemptId, artifacts.dir, signal);
+    session = await executor.launchSession({ session: undefined, recordings: { trace: undefined, video } }, attemptId, artifacts.dir, signal);
+    session.appLog.route((event, at) => steps.recordAppEvent(event, at));
   } catch (cause) {
     await executor.dispose();
     await teardownProcesses();
@@ -220,7 +221,7 @@ export async function openStandaloneAttempt(options: StandaloneAttemptOptions): 
         attemptEnd.abort();
         const record: ClosingRecord = { status: 'passed', cleanup: 'complete' };
         try {
-          await executor.closeSession(session, { attemptId, recordings }, record, artifacts.sink, cleanupErrors);
+          await executor.closeSession(session, { attemptId, video }, record, artifacts.sink, cleanupErrors);
           await executor.dispose();
           cleanupErrors.push(...executor.collectedRunErrors().map((runError) => runError.error));
           await artifacts.settle();
@@ -236,12 +237,12 @@ export async function openStandaloneAttempt(options: StandaloneAttemptOptions): 
 }
 
 /**
- * What the standalone attempt records of one kind: what the mode says a first
+ * What the standalone attempt records: what the mode says a first
  * attempt does, since there is no retry loop. The attempt always closes as
  * passed, so a recording kept only on failure would be made and deleted, and
  * is not made at all.
  */
-function sessionRecording(recording: ResolvedRecording): AttemptRecording | undefined {
-  const planned = attemptRecording(recording, 0);
+function sessionRecording(recording: ResolvedRecording): VideoRecording | undefined {
+  const planned = attemptVideo(recording, 0);
   return planned?.keep === 'on-failure' ? undefined : planned;
 }

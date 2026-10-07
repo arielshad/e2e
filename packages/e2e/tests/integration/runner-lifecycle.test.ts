@@ -610,7 +610,8 @@ test('other', { tags: ['smoke'] }, async () => {});
 import { test } from 'e2e';
 const marker = new URL('./ran-once', import.meta.url);
 test('steady', async () => {});
-test('breaks the second time', async () => {
+test('breaks the second time', async ({ app }) => {
+  await app.open();
   if (existsSync(marker)) throw new Error('second run breaks');
   writeFileSync(marker, '');
 });
@@ -631,7 +632,8 @@ test('breaks the second time', async () => {
       expect(results[0]!.id).toBe(resultId(results[0]!.testId, 'fake', 'default'));
       const paths = results[4]!.attempts[0]!.artifacts.flatMap((artifact) => (artifact.path === undefined ? [] : [artifact.path]));
       expect(paths.length).toBeGreaterThan(0);
-      expect(paths.every((artifactPath) => artifactPath.includes('/repeat-1/'))).toBe(true);
+      // Each repeat is a result of its own, and its evidence lands under its own id.
+      expect(paths.every((artifactPath) => artifactPath.split('/')[0]!.endsWith(results[4]!.id.slice(0, 16)))).toBe(true);
       expect(outcome.report.run.summary).toMatchObject({ selected: 6, executed: 6, passed: 4, failed: 2 });
 
       // Only the breaking test failed, on its later repeats; the rerun names it once and runs it once,
@@ -863,7 +865,10 @@ test('sleeps until interrupted', async () => {
       expect(outcome.report.run.summary).toMatchObject({ failed: 0, interrupted: 1 });
       expect(readFileSync(path.join(output, 'summary.md'), 'utf8')).toMatch(/^### ⏹️ e2e: 1 interrupted\n/u);
       expect(readFileSync(path.join(output, 'junit.xml'), 'utf8')).toContain('<skipped message="interrupted: ');
-      expect(existsSync(path.join(output, 'failures'))).toBe(false);
+      // The interrupted test's page is this run's own: it shows where the test stopped.
+      const results = path.join(output, 'results');
+      const pages = existsSync(results) ? readdirSync(results, { recursive: true }).map(String).filter((entry) => entry.endsWith('trace.md')) : [];
+      expect(pages).toEqual([expect.stringMatching(/^sleeps-until-interrupted-[0-9a-f]{16}\/trace\.md$/)]);
       project.cleanup();
     },
     120_000,

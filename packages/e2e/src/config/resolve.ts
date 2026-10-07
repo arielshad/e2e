@@ -245,7 +245,7 @@ export function resolveConfig(
     }
   }
 
-  const recordings = runRecordings(raw, cli, ci);
+  const recordings = runRecordings(raw, cli);
   const targets = resolveTargets(raw.targets, options.projectRoot, (target, where) => ({
     trace: targetRecording(recordings.trace, target.trace, `${where} trace`, 'trace'),
     video: targetRecording(recordings.video, target.video, `${where} video`, 'video'),
@@ -410,7 +410,7 @@ function resolveCacheConfig(
 }
 
 /** The directories under the output a run clears or owns, which nothing else may live in. */
-const OUTPUT_OWNED_DIRS = ['artifacts', 'sessions', 'videos'] as const;
+const OUTPUT_OWNED_DIRS = ['results', 'sessions', 'videos'] as const;
 
 /** Whether `inner` is `outer` or a path below it. */
 function isWithin(inner: string, outer: string): boolean {
@@ -428,7 +428,7 @@ function nearestExisting(target: string): string | undefined {
 
 /**
  * Resolves the results directory, `--output` over the config's `output`,
- * from the project root. A run clears `<output>/artifacts` and writes over
+ * from the project root. A run clears `<output>/results` and writes over
  * its reports, so the directory must be one it can own: a directory (or a
  * path that does not exist yet) inside the project root and not the root
  * itself, not holding the directory a test glob scans, not the cache
@@ -458,7 +458,7 @@ function resolveOutput(
   const root = realpathOfExisting(projectRoot);
   const real = realpathOfExisting(output);
   const cache = realpathOfExisting(cacheDir);
-  if (real === root) refuse("is the project root; the run clears <output>/artifacts, so name a directory of its own, such as '.e2e'");
+  if (real === root) refuse("is the project root; the run clears <output>/results, so name a directory of its own, such as '.e2e'");
   if (!isWithin(real, root)) refuse(`is outside the project root ${projectRoot}; name a directory inside it`);
   const existing = nearestExisting(output);
   if (existing !== undefined && !statSync(existing).isDirectory()) {
@@ -580,13 +580,13 @@ interface RunRecording {
 }
 
 /**
- * The run's `trace` and `video` modes before any target speaks. A trace is
- * on by default locally and recorded on the first retry in CI, where a
- * trace of every attempt is the cost of a large share of the run.
+ * The run's `trace` and `video` modes before any target speaks. A failed
+ * attempt keeps its trace by default, locally and in CI alike: the trace is
+ * the runner's own text, cheap to write and worth reading on every failure.
  */
-function runRecordings(raw: E2EConfig, cli: CliOverrides, ci: boolean): Readonly<Record<RecordingKind, RunRecording>> {
+function runRecordings(raw: E2EConfig, cli: CliOverrides): Readonly<Record<RecordingKind, RunRecording>> {
   return {
-    trace: { cli: recordingMode(cli.trace, '--trace', 'trace'), config: recordingMode(raw.trace, 'trace', 'trace'), fallback: ci ? 'on-first-retry' : 'on' },
+    trace: { cli: recordingMode(cli.trace, '--trace', 'trace'), config: recordingMode(raw.trace, 'trace', 'trace'), fallback: 'retain-on-failure' },
     video: { cli: recordingMode(cli.video, '--video', 'video'), config: recordingMode(raw.video, 'video', 'video'), fallback: 'off' },
   };
 }

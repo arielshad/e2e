@@ -5,8 +5,8 @@ icon: "compass"
 ---
 
 Use `e2e explore` to investigate a flow without writing a test. Give the
-agent a goal; it chooses the steps and records findings in
-`.e2e/report.json`.
+agent a goal; it chooses the steps, records findings, and prints them when
+it ends.
 
 <CodeGroup>
 ```bash npm
@@ -91,16 +91,16 @@ screenshots once a secret is filled; see
 [screenshots after a secret fill](/security#screenshots-after-a-secret-fill).
 
 Its artifacts land in a directory named after the goal, such as
-`.e2e/artifacts/web/explore-check-the-cart-totals-1a2b3c4d5e6f7a8b/`. A rerun
+`.e2e/results/explore-check-the-cart-totals-1a2b3c4d5e6f7a8b/`. A rerun
 of the same goal writes to the same directory.
 
 `--reporter list,markdown` also writes the findings to `.e2e/summary.md`.
 `--debug`, `--ai-trace`, `--trace`, and `--video` work as they do for
-`e2e run`: they apply when the engine can record, with a notice otherwise.
-The exploration is one attempt, so a retry mode (`on-first-retry`,
-`on-all-retries`, and the CI trace default) records nothing, and the run
-prints a notice saying to pass `--trace on` (or `--video on`); put the goal
-before a bare `--trace` or `--video`.
+`e2e run`; `--video` applies when the engine can record, with a notice
+otherwise. The exploration is one attempt, so a retry mode (`on-first-retry`,
+`on-all-retries`) records nothing, and the run prints a notice saying to pass
+`--trace on` (or `--video on`); put the goal before a bare `--trace` or
+`--video`.
 
 ## Your config applies
 

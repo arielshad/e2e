@@ -139,9 +139,10 @@ export interface E2EConfig {
   /** `{ store }` hands every artifact to a host store as it is produced. */
   artifacts?: ArtifactsConfig;
   /**
-   * Which attempts record a trace; default `on`, `on-first-retry` in CI. A
-   * target's `trace` wins over it, `--trace [mode]` over both, and a test's
-   * own `trace` over all. Applies to the targets whose engine can trace.
+   * Which tests keep a trace page, `trace.md` in the test's directory under
+   * `<output>/results/`; default
+   * `retain-on-failure`. A target's `trace` wins over it, `--trace [mode]`
+   * over both, and a test's own `trace` over all.
    */
   trace?: RecordingMode;
   /**
@@ -227,10 +228,8 @@ export interface Target {
   /** The app under test: what it is, where it is served, and the command that starts it. */
   app?: TargetApp;
   /**
-   * Which attempts on this target record a trace, in place of the config's
-   * `trace`; `--trace` and a test's own `trace` win over it. A mode set here
-   * is required of the engine: one that cannot trace fails the run with
-   * `UNSUPPORTED_ARTIFACT`.
+   * Which tests on this target keep a trace page, in place of the config's
+   * `trace`; `--trace` and a test's own `trace` win over it.
    */
   trace?: RecordingMode;
   /**
@@ -417,9 +416,9 @@ run.
 | Path under the output | What |
 | --- | --- |
 | `report.json` | The canonical report; `--last-failed` reads the one here |
-| `junit.xml`, `summary.md`, `failures/` | The `junit` and `markdown` reporters' files |
+| `junit.xml`, `summary.md` | The `junit` and `markdown` reporters' files |
 | `ai-trace.json` | `--ai-trace` |
-| `artifacts/` | Screenshots, traces, videos, downloads, and logs, one directory per attempt. Cleared once a run's tests start, so it holds the latest run's evidence and nothing its report no longer names. A `--last-failed` rerun keeps the files the report it reruns names and writes its own attempts under `artifacts/rerun-<n>/` |
+| `results/` | One directory per test: its [trace page](/debugging#traces), `trace.md`, when the [`trace`](#trace) mode keeps one, and its screenshots, videos, downloads, and logs, one `attempt-<n>/` per attempt. Cleared once a run's tests start, so it holds the latest run's evidence and nothing its report no longer names. A `--last-failed` rerun keeps the files the report it reruns names and writes its own attempts under each test's `rerun-<n>/` |
 | `sessions/` | The run's encrypted `test.setup` sessions, deleted when it ends |
 | `videos/<session>/` | [`e2e mcp`](/reference/mcp#recording) session recordings |
 
@@ -427,9 +426,9 @@ A run that stops before its tests start writes nothing here: a selection
 that matches no test (`NO_TESTS`, a mistyped `--grep`), a collection error,
 a target that cannot record what it asks for (`UNSUPPORTED_ARTIFACT`),
 `NO_LAST_RUN`, an app or service that fails to start, or an interrupt
-leaves the previous run's `report.json`, `ai-trace.json`, and `artifacts/`
-as they were, so `--last-failed` still reads the last run that executed. An `e2e mcp` session writes its attempt's artifacts under the same
-`artifacts/` and never clears it.
+leaves the previous run's `report.json`, `ai-trace.json`, and `results/`
+as they were, so `--last-failed` still reads the last run that executed. An `e2e mcp` session writes its attempt's artifacts under
+`results/mcp/` and never clears it.
 
 The replay cache is independent: [`cache.dir`](#cache) defaults to
 `.e2e/cache` and resolves from the project root whatever `output` says, so
@@ -439,7 +438,7 @@ owns part of it, the output directory fails the config load with
 
 - is the project root, or outside it;
 - is a file, or a path under one (a missing directory is created);
-- is `cache.dir` or inside it, or would hold `cache.dir` under `artifacts/`,
+- is `cache.dir` or inside it, or would hold `cache.dir` under `results/`,
   `sessions/`, or `videos/`;
 - holds a directory a `tests` glob scans (`output: 'tests'` with the default
   `tests/**/*.e2e.ts`).
@@ -522,7 +521,7 @@ export interface ArtifactStore {
 
 /** One produced artifact, handed to `store.put` once it is complete on disk. */
 export interface StoredArtifact {
-  readonly kind: 'screenshot' | 'trace' | 'video' | 'download' | 'log';
+  readonly kind: 'screenshot' | 'video' | 'download' | 'log';
   readonly mediaType: string;
   readonly bytes: Uint8Array;
   readonly size: number;
@@ -530,7 +529,7 @@ export interface StoredArtifact {
   /** Report-relative path with `/` separators, stable across runs of the same test. */
   readonly path: string;
   /** How much of the file the runner masked, as the report records it. */
-  readonly redaction: 'complete' | 'not-required' | 'incomplete';
+  readonly redaction: 'complete' | 'incomplete';
   readonly runId: string;
   readonly testId: string;
   readonly attemptId: string;
@@ -561,7 +560,7 @@ export interface StoredArtifactLink {
 ## Recording
 
 ```ts
-trace: 'on-first-retry',
+trace: 'on',
 video: 'retain-on-failure',
 targets: [
   { name: 'chromium', engine: web(), app: { url } },
@@ -569,26 +568,26 @@ targets: [
 ],
 ```
 
-`trace` and `video` choose which attempts record, with one set of modes:
+`trace` and `video` choose what is recorded, with one set of modes:
 
 ```ts
-/** Which attempts record a trace or a video, and which recordings are kept. */
+/** Which tests keep a trace page, or which attempts record a video. */
 export type RecordingMode = 'off' | 'on' | 'retain-on-failure' | 'on-first-retry' | 'on-all-retries';
 ```
 
-| Mode | Records | Keeps |
+| Mode | Trace page | Video |
 | --- | --- | --- |
-| `off` | nothing | nothing |
-| `on` | every attempt | every recording |
-| `retain-on-failure` | every attempt | the recordings of attempts that did not pass; a passed attempt's files are deleted once its verdict is in |
-| `on-first-retry` | the first retry only, the second attempt | that recording. A test that passes first time records nothing |
-| `on-all-retries` | every attempt after the first | every recording. A test that passes first time records nothing |
+| `off` | none | none |
+| `on` | every test, passing ones included | every attempt |
+| `retain-on-failure` | each failed, timed-out, interrupted, or flaky test | every attempt, keeping those that did not pass |
+| `on-first-retry` | each test whose first retry ran | the first retry only, the second attempt |
+| `on-all-retries` | each test that was retried | every attempt after the first |
 
 The names are Playwright's `use.trace` and `use.video` modes. Under a retry
 mode a test with `retries: 0` records nothing, and neither does a failure the
-runner does not retry, such as `LAUNCH_TIMEOUT`. When a test whose engine can
-record runs that way, the run prints one notice per kind at plan time saying
-no traces (or videos) will be recorded for it.
+runner does not retry, such as `LAUNCH_TIMEOUT`. When such a test runs, the
+run prints one notice per kind at plan time saying no traces (or videos) will
+be recorded for it.
 
 The old trace spellings fail with `INVALID_CONFIG` naming the mode they
 meant, wherever a mode goes (the config, a target, a test, `--trace`):
@@ -605,19 +604,14 @@ The same rule holds for `trace` and `video`:
 4. A test's or describe's own [`trace` or `video` option](/reference/test#options),
    innermost wins: `test('checkout', { video: 'on' }, ...)`.
 
-A serial group records one trace and one video per group attempt, so its
-members cannot set `trace` or `video` (a `COLLECTION_ERROR`, like `retries`).
-The value on the serial `describe`, or on a group around it, applies to every
-member.
+A serial group records as one unit, so its members cannot set `trace` or
+`video` (a `COLLECTION_ERROR`, like `retries`). The value on the serial
+`describe`, or on a group around it, applies to every member.
 
-`e2e explore` and an `e2e mcp` session are one attempt each and use the
-target's mode, `--trace` and `--video` included for `explore`, so a retry
-mode records nothing there. That includes the CI default: `CI=1 e2e explore`
-records no trace unless you pass `--trace on`, and its plan-time notice says
-so. An `e2e mcp` session always closes as passed, so
-it keeps a trace only under `on`. It never records video from the configured
-mode: its recordings are the ones `start_recording` and `stop_recording`
-make.
+`e2e explore` is one attempt and uses the target's mode, `--trace` and
+`--video` included, so a retry mode records nothing there. An `e2e mcp`
+session writes no trace, and never records video from the configured mode:
+its recordings are the ones `start_recording` and `stop_recording` make.
 
 Neither `trace` nor `video`, at the top or on a target, enters the config
 digest, and neither is part of a replay's
@@ -626,27 +620,24 @@ invalidates cached replays.
 
 ### trace
 
-The default is `on` locally and `on-first-retry` in CI (the same `CI`
-detection that makes `retries` default to 1 there). Recording a trace costs
-CPU for the whole attempt: on a 141-test suite, every-attempt traces added
-about a quarter to the run's wall time, which is why CI records only the
-retry a flaky test leaves behind.
-
-The web engine writes a Playwright trace per attempt, `trace/trace.zip` under
-the attempt's artifact directory, which the runner redacts after a secret
-fill; [Debugging](/debugging#artifacts) shows how to open it.
+The default is `retain-on-failure`, locally and in CI. A trace page is
+markdown, `trace.md` in the test's directory under `<output>/results/`, such as
+`.e2e/results/checkout-applies-the-coupon-1a2b3c4d5e6f7a8b/trace.md`: every step
+with what it did, the cache's decisions, what the app logged, and the screen
+at failure. It works on every engine. [Debugging](/debugging#traces) shows
+one.
 
 ### video
 
-The default is `off`. A video costs more than a trace and holds what the
-screen showed, secrets included, so it is always asked for.
+The default is `off`. A video costs CPU and holds what the screen showed,
+secrets included, so it is always asked for.
 
 ### Engines that cannot record
 
-Before any test starts, the run grades every target. Where a mode was set
-decides what an engine that cannot record that kind does:
+Before any test starts, the run grades every target. Where a `video` mode
+was set decides what an engine that cannot record video does:
 
-- Set at the top of the config or with `--trace` / `--video`: the mode applies
+- Set at the top of the config or with `--video`: the mode applies
   to the targets whose engine can record it. The run prints one notice at
   plan time naming the targets that cannot, and runs them without.
 - Set on a target, or on a test that will run on that target: the mode is

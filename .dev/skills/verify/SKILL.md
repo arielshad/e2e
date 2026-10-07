@@ -1,6 +1,8 @@
 ---
 name: verify
 description: Prove a change to the e2e runner, an engine, the CLI, a reporter, the MCP server, or the docs works the way a user sees it - the real CLI against the testbed and benchmark apps, headed and on video when it matters, main against the branch for fixes. Use while iterating and before opening a PR, when asked to run, test, check, or screenshot something, to reproduce a bug report, or whenever you would otherwise say "it compiles".
+metadata:
+  internal: true
 ---
 
 # Verify
@@ -59,7 +61,7 @@ Agentic runs need `AI_GATEWAY_API_KEY`. The benchmark agent suites replay
 their committed recordings and call the model only for a step with none, as
 CI does; a step that spends a model call there means its recording went
 stale. Go live with `--no-cache --ai-trace` only when the change is to the agent, and
-read the trace with [unbox-ai](../unbox-ai/SKILL.md) (`compare` main against
+read the trace with [unbox-ai](../../../.claude/skills/unbox-ai/SKILL.md) (`compare` main against
 the branch), never by opening it. Re-recorded entries are committed in the
 same PR ("Committed recordings" in `AGENTS.md`).
 
@@ -81,8 +83,8 @@ video (both web and mobile do): `start_recording` once the screen is set up,
 ## Drive it like a user
 
 - Run the built CLI, not a unit test harness. Read what it prints and what it
-  writes (`.e2e/report.json`, `--reporter list,markdown` for
-  `.e2e/summary.md` and `.e2e/failures/`).
+  writes (`.e2e/report.json`, the trace pages under `.e2e/results/<test>/trace.md`, and
+  `--reporter list,markdown` for `.e2e/summary.md`).
 - Exercise the failure path too: a change to an error code, a timeout, or a
   policy refusal is verified by triggering it and reading the message a user
   gets.
@@ -101,8 +103,9 @@ ran, and what you saw, with media:
 - **Terminal output:** paste the relevant lines of the CLI output as a
   fenced `text` block (ANSI stripped, paths trimmed). This is the primary
   evidence for runner, CLI, and reporter changes.
-- **Video:** `--video` (add `--headed` to watch it) records every attempt to
-  `.e2e/artifacts/<target>/<test>/.../attempt-<n>/video/`: `video.webm` from
+- **Video:** `--video` (add `--headed` to watch it) records every attempt, on
+  an engine that records video, to
+  `.e2e/results/<test>/attempt-<n>/video/`: `video.webm` from
   `@e2e-dev/web`, `video.mp4` from `@e2e-dev/mobile`.
   Attach it for engine, locator, and agent changes a viewer can see.
 - **Stills:** cut a frame from the video

@@ -10,7 +10,7 @@ import { web as webEngine, surfaceOf, type WebConnectOptions, type WebOptions, t
 import { closeRemoteChrome, launchRemoteChrome, type RemoteChrome } from '../helpers/cdp-host.ts';
 import { startFixtureApp, type FixtureApp } from '../helpers/fixture-app.ts';
 import { decodePng } from '../helpers/png.ts';
-import { noSecrets } from '../helpers/secrets.ts';
+import { ignoreTrace, noSecrets } from '../helpers/secrets.ts';
 
 /** One operation's budget, independent of model calls or the runner's test timeout. */
 function operation(timeoutMs = 10_000, signal = new AbortController().signal): OperationContext {
@@ -74,7 +74,7 @@ describe('CDP session recovery', () => {
       app: { site: new URL(app.url).hostname }, env: {}, headed: false,
       workerSlot: 0, signal: new AbortController().signal, log: () => undefined,
     });
-    await engine.startAttempt!({ attemptId: 'a1', artifactsDir, signal: new AbortController().signal, resolveSecret: noSecrets });
+    await engine.startAttempt!({ attemptId: 'a1', artifactsDir, signal: new AbortController().signal, resolveSecret: noSecrets, ...ignoreTrace });
     await engine.session!.open!(`${app.url}/login`, operation());
     return engine;
   }
@@ -264,13 +264,13 @@ describe('CDP session recovery', () => {
     try {
       await surfaceOf(engine)!.page().evaluate(() => { localStorage.setItem('attempt', 'a1'); });
       await engine.endAttempt!(cleanup());
-      await engine.startAttempt!({ attemptId: 'a2', artifactsDir, signal: new AbortController().signal, resolveSecret: noSecrets });
+      await engine.startAttempt!({ attemptId: 'a2', artifactsDir, signal: new AbortController().signal, resolveSecret: noSecrets, ...ignoreTrace });
       await engine.session!.open!(`${app.url}/login`, operation());
       expect(await surfaceOf(engine)!.page().evaluate(() => localStorage.getItem('attempt'))).toBeNull();
       expect(provisioned).toBe(2);
       await engine.endAttempt!(cleanup());
       reuse = true;
-      await expect(engine.startAttempt!({ attemptId: 'a3', artifactsDir, signal: new AbortController().signal, resolveSecret: noSecrets }))
+      await expect(engine.startAttempt!({ attemptId: 'a3', artifactsDir, signal: new AbortController().signal, resolveSecret: noSecrets, ...ignoreTrace }))
         .rejects.toThrow(/reused a browser/);
     } finally {
       await engine.dispose!(cleanup());
@@ -324,11 +324,10 @@ describe('CDP session recovery', () => {
     expect(await surfaceOf(engine)!.page().getAttribute('body', 'data-started')).toBe('true');
   });
 
-  it('resumes video and trace recording on the recovered page', async () => {
+  it('resumes video recording on the recovered page', async () => {
     const remote = await host();
     const engine = await start({ cdpEndpoint: () => remote.endpoint, reconnectEndpoint: () => remote.endpoint });
     await engine.artifacts!.startVideo!(operation());
-    await engine.artifacts!.startTrace!(operation());
     await surfaceOf(engine)!.page().screenshot();
     await surfaceOf(engine)!.context().browser()!.close();
     await engine.observe!(operation());
@@ -339,11 +338,9 @@ describe('CDP session recovery', () => {
     await engine.artifacts!.stopVideo!(operation()).catch((cause: unknown) => {
       expect(cause).toMatchObject({ code: 'ENGINE_FAILURE' });
     });
-    await engine.artifacts!.stopTrace!(operation());
     const video = path.join(artifactsDir, 'video/video-part2.webm');
     expect(existsSync(video)).toBe(true);
     expect(statSync(video).size).toBeGreaterThan(0);
-    expect(existsSync(path.join(artifactsDir, 'trace/trace.zip'))).toBe(true);
   }, 60_000);
 
   it('recovers before arming a download waiter and runs its trigger once', async () => {

@@ -30,20 +30,21 @@ import { timestamp, uuidv7 } from '../internal/ids.ts';
 import type { ExploreProgress } from '../explore/progress.ts';
 import { buildReport, type Report1Document, type ReportExplore, type TargetProvenance } from '../report/build.ts';
 import { agentStepTable } from '../report/debug-steps.ts';
+import { writeTracePages, type TracePages } from '../report/traces.ts';
 import { STATELESS_REPORTERS } from '../report/builtin.ts';
 import { ListReporter } from '../report/list.ts';
 import { writeJsonReport } from '../report/write.ts';
 import { createRunEventEmitter, toEventResult, type RunEventSink, type RunExitCode, type RunStatus, type RunEventFact, type SetupStep } from './events.ts';
 import { allocateAppPorts } from './app-ports.ts';
 import { inProcessSpawner } from './in-process.ts';
-import { someSkippedAfterFailure, type ResultRecord, type RunError, type SerialGroupRecord } from './records.ts';
+import { someSkippedAfterFailure, tracedResultIds, type ResultRecord, type RunError, type SerialGroupRecord } from './records.ts';
 import { runUnits } from './scheduler.ts';
 import { buildWorkPlans, plannedSlots, type TargetWorkPlan } from './units.ts';
 import { SessionStore } from './sessions.ts';
 import { outputLayout } from './output.ts';
 import type { RunnerOutput } from './process-output.ts';
 import { registerStaticSecrets } from './secrecy.ts';
-import { claimRerunDir, pruneArtifacts } from './artifacts.ts';
+import { nextRerunDir, pruneArtifacts } from './artifacts.ts';
 import { carryForward, lastFailedIds, readLastRun, reportArtifactPaths, type RerunCollection } from './last-run.ts';
 import { childProcessSpawner } from './worker/handle.ts';
 import { setSecretRegistry } from '../secrets.ts';
@@ -119,12 +120,15 @@ export interface RunOptions {
   /** Records every model call to `<output>/ai-trace.json` (`--ai-trace`). */
   aiTrace?: boolean | undefined;
   /**
-   * Which attempts record a trace (`--trace [mode]`), over the config's and
-   * every target's `trace`; a test's own `trace` still wins. Applies to the
-   * targets whose engine can trace; the run names the others in a notice.
+   * Which attempts keep a trace (`--trace [mode]`), over the config's and
+   * every target's `trace`; a test's own `trace` still wins.
    */
   trace?: RecordingMode | undefined;
-  /** Which attempts record a video (`--video [mode]`), on the same terms as `trace`. */
+  /**
+   * Which attempts record a video (`--video [mode]`), on the same terms as
+   * `trace`. Applies to the targets whose engine can record video; the run
+   * names the others in a notice.
+   */
   video?: RecordingMode | undefined;
   /**
    * A config value instead of a discovered file, for the test harness. May
@@ -522,6 +526,25 @@ export async function run(options: RunOptions = {}): Promise<RunOutcome> {
   };
 
   /**
+   * Writes the trace pages beside the report. Like `junit.xml` and
+   * `summary.md`, they read the report and add to it nothing it lacks, so a
+   * page that could not be written is a line on stderr, never a run error
+   * that would disagree with the report already on disk.
+   */
+  const writeTraces = async (config: ResolvedConfig, document: Report1Document): Promise<TracePages> => {
+    try {
+      return await writeTracePages(document, tracedResultIds(results, serialGroups), {
+        projectRoot: config.projectRoot,
+        resultsRoot: outputLayout(config.output).results,
+        cacheDir: config.cache.store === undefined ? config.cache.dir : undefined,
+      });
+    } catch (cause) {
+      process.stderr.write(`e2e: the trace pages could not be written: ${errorMessage(cause)}\n`);
+      return new Map();
+    }
+  };
+
+  /**
    * Whether the run got as far as its tests. Only such a run writes into the
    * output directory: one that stopped before leaves the previous run's
    * report, AI trace, and artifacts where they are.
@@ -537,6 +560,7 @@ export async function run(options: RunOptions = {}): Promise<RunOutcome> {
     const document = buildRunReport(currentExitCode());
     const recorded = runErrors.length;
     const reportPath = written === undefined ? undefined : await writeCanonicalReport(written, document);
+    const traces = written === undefined ? new Map<string, string>() : await writeTraces(written, document);
     const exitCode = currentExitCode();
     const report = runErrors.length === recorded ? document : buildRunReport(exitCode);
     // Read back from the report rather than recomputed: the report derives
@@ -550,6 +574,7 @@ export async function run(options: RunOptions = {}): Promise<RunOutcome> {
       exitCode,
       ...(reportPath === undefined ? {} : { reportPath }),
       ...(aiTracePath === undefined ? {} : { aiTracePath }),
+      ...(traces.size === 0 ? {} : { traces: Object.fromEntries(traces) }),
     });
     // The list reporter has printed its summary and stopped its window; a
     // line another reporter left unfinished on `run-finished` prints too.
@@ -557,6 +582,8 @@ export async function run(options: RunOptions = {}): Promise<RunOutcome> {
     if (debug.enabled) {
       process.stderr.write(debug.summary());
       process.stderr.write(agentStepTable(results, serialGroups));
+      // The report is for scripts, so the summary leaves it out; a reader after the raw record finds it here.
+      if (written !== undefined && reportPath !== undefined) process.stderr.write(`[e2e debug] report ${path.relative(written.projectRoot, reportPath) || reportPath}\n`);
     }
     // `onRunFinished` runs last, after everything the terminal shows, so
     // nothing reading it waits on a slow reporter; the rows they resolve with
@@ -570,8 +597,9 @@ export async function run(options: RunOptions = {}): Promise<RunOutcome> {
         exitCode,
         projectRoot: loaded.config?.projectRoot ?? cwd,
         reportPath,
-        artifactsRoot: outputLayout(loaded.config?.output ?? path.resolve(cwd, options.output ?? '.e2e')).artifacts,
+        artifactsRoot: outputLayout(loaded.config?.output ?? path.resolve(cwd, options.output ?? '.e2e')).results,
         aiTracePath,
+        traces,
         ...(lastRun === undefined ? {} : { lastRun }),
       },
       options.reporterTimeout ?? REPORTER_TIMEOUT_MS,
@@ -598,7 +626,7 @@ export async function run(options: RunOptions = {}): Promise<RunOutcome> {
     runId,
     projectId: config.projectId,
     projectRoot: config.projectRoot,
-    artifactsRoot: outputLayout(config.output).artifacts,
+    artifactsRoot: outputLayout(config.output).results,
     ci: isCiMode(env),
     targets: config.targets.map((target) => target.name),
     ...(config.agentNames.length === 1 && config.agentNames[0] === 'default' ? {} : { agents: config.agentNames }),
@@ -752,13 +780,14 @@ export async function run(options: RunOptions = {}): Promise<RunOutcome> {
     const layout = outputLayout(config.output);
 
     // Tests are about to start, and only now is the previous run's evidence
-    // given up: the artifact tree is emptied, so what is there once this run
-    // ends is its own and nothing a report no longer names, and this run's
-    // report replaces the last. A `--last-failed` rerun keeps the evidence
-    // the report it reruns names instead, since that report's results fold
-    // into the rerun's and its carried tests do not run again, and files its
-    // own attempts in a fresh `rerun-<n>` directory beside it, so no attempt
-    // overwrites an earlier one's files. A run that stopped before here (no
+    // given up: the results tree (each test's trace page and artifacts) is
+    // emptied, so what is there once this run ends is its own and nothing a
+    // report no longer names, and this run's report replaces the last. A
+    // `--last-failed` rerun keeps the artifacts the report it reruns names
+    // instead, since that report's results fold into the rerun's and its
+    // carried tests do not run again, and files its own attempts in a fresh
+    // `rerun-<n>` directory inside each test's, so no attempt overwrites an
+    // earlier one's files. The trace pages are written again at the end. A run that stopped before here (no
     // test selected, a collection error, a target that cannot record what it
     // asks, an app that failed to start, an interrupt) leaves both, and
     // `--last-failed` still reads the run that executed. A wipe that fails
@@ -768,17 +797,17 @@ export async function run(options: RunOptions = {}): Promise<RunOutcome> {
     let rerunDir: string | undefined;
     try {
       if (lastRun === undefined) {
-        await rm(layout.artifacts, { recursive: true, force: true });
+        await rm(layout.results, { recursive: true, force: true });
       } else {
-        await pruneArtifacts(layout.artifacts, reportArtifactPaths(lastRun));
-        rerunDir = await claimRerunDir(layout.artifacts);
+        await pruneArtifacts(layout.results, reportArtifactPaths(lastRun));
+        rerunDir = await nextRerunDir(layout.results);
       }
     } catch (cause) {
       recordFailure(cause, 'launch');
       return;
     }
 
-    const artifactsRoot = layout.artifacts;
+    const artifactsRoot = layout.results;
     const store = SessionStore.create(runId, layout.sessions);
     sessionStore = store;
 

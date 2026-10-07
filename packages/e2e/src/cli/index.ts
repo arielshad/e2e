@@ -549,7 +549,7 @@ function createProgram(version: string, telemetry: Telemetry): Command {
     .addOption(new Option('--artifacts <dir>').hideHelp().argParser(removedArtifactsFlag))
     .option('--debug', 'print phase timings and the agent step table to stderr')
     .option('--ai-trace', 'record every model call to <output>/ai-trace.json (unbox-ai)')
-    .option('--trace [mode]', `which attempts record a trace: ${RECORDING_MODES.join(', ')} (bare: on), over the config and every target`, parseRecordingMode('--trace'))
+    .option('--trace [mode]', `which attempts keep a trace page (<output>/results/<test>/trace.md): ${RECORDING_MODES.join(', ')} (bare: on), over the config and every target`, parseRecordingMode('--trace'))
     .option('--video [mode]', `which attempts record a video: ${RECORDING_MODES.join(', ')} (bare: on), over the config and every target`, parseRecordingMode('--video'))
     .addHelpText(
       'after',
@@ -668,7 +668,7 @@ function createProgram(version: string, telemetry: Telemetry): Command {
     .addOption(new Option('--artifacts <dir>').hideHelp().argParser(removedArtifactsFlag))
     .option('--debug', 'print phase timings and the agent step table to stderr')
     .option('--ai-trace', 'record every model call to <output>/ai-trace.json (unbox-ai)')
-    .option('--trace [mode]', 'record a trace of the exploration (bare: on), when the engine supports it; one attempt, so retry modes record none', parseRecordingMode('--trace'))
+    .option('--trace [mode]', 'keep a trace page of the exploration (bare: on); one attempt, so retry modes keep none', parseRecordingMode('--trace'))
     .option('--video [mode]', 'record a video of the exploration (bare: on), when the engine supports it; one attempt, so retry modes record none', parseRecordingMode('--video'))
     .addHelpText(
       'after',
