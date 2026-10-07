@@ -1,14 +1,17 @@
 /**
  * What `claudeCode()` makes the real `claude` CLI send, read off a local
  * stand-in for the Messages API: one request per call, thinking off, the
- * caller's system prompt and tools, and nothing of a parent Claude Code
- * session (run it from inside one to check that). Needs the CLI installed,
- * no sign-in and no network:
+ * caller's system prompt and tools, nothing of a parent Claude Code session
+ * (run it from inside one to check that), and nothing of a user settings
+ * file's `env`. Needs the CLI installed, no sign-in and no network:
  *   node tests/live/claude-code-payload.ts [model]
  */
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { generateText, jsonSchema, tool } from 'ai';
 import { claudeCode } from '../../src/oauth/claude-code.ts';
 
@@ -52,9 +55,14 @@ const server = createServer((request, response) => {
 await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
 const { port } = server.address() as AddressInfo;
 
+// A user whose settings file turns thinking on and caps the output: the call's own limits must win.
+const home = mkdtempSync(path.join(tmpdir(), 'e2e-claude-home-'));
+mkdirSync(path.join(home, '.claude'));
+writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({ env: { MAX_THINKING_TOKENS: '7777', CLAUDE_CODE_MAX_OUTPUT_TOKENS: '4321' } }));
+
 try {
   const model = claudeCode(modelId, {
-    env: { ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`, ANTHROPIC_API_KEY: 'stand-in', NO_PROXY: '127.0.0.1', no_proxy: '127.0.0.1' },
+    env: { HOME: home, ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`, ANTHROPIC_API_KEY: 'stand-in', NO_PROXY: '127.0.0.1', no_proxy: '127.0.0.1' },
   });
   const result = await generateText({
     model,
@@ -67,7 +75,8 @@ try {
   assert.deepEqual(result.toolCalls.map((call) => [call.toolName, call.input]), [['tap', { id: 'n1' }]]);
   assert.equal(requests.length, 1, 'one API request per model call');
   const [{ body, headers }] = requests as [Captured];
-  assert.notEqual(body.thinking?.type, 'enabled', 'thinking is off unless the call enables it');
+  assert.notEqual(body.thinking?.type, 'enabled', 'thinking is off unless the call enables it, whatever the settings file says');
+  assert.notEqual(body.max_tokens, 4321, 'the settings file does not cap the output');
   assert.ok(body.system.some((block) => block.text.startsWith('SYSTEM-MARKER')), 'the caller\'s system prompt is sent');
   assert.deepEqual(body.tools.map((t) => t.name), ['StructuredOutput'], 'no built-in tools, only the structured output');
   assert.match(JSON.stringify(body.tools[0]?.input_schema), /"const":"tap"/, 'the caller\'s tools travel in its schema');
@@ -98,4 +107,5 @@ try {
   console.log('ok');
 } finally {
   server.close();
+  rmSync(home, { recursive: true, force: true });
 }

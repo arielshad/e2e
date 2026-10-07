@@ -9,16 +9,17 @@
 
 import type { E2EConfig, StepExecutor, StepVerdict } from 'e2e';
 import { web } from '@e2e-dev/web';
-import { createGateway, stepCountIs, tool, ToolLoopAgent } from 'ai';
+import { stepCountIs, tool, ToolLoopAgent } from 'ai';
 import { z } from 'zod';
+import { agentModel } from './agent-model.ts';
 
-const MODEL_ID = process.env.E2E_MODEL ?? 'openai/gpt-6-luna-fast';
+const MODEL_FALLBACK = 'openai/gpt-6-luna-fast';
 
 const mathBrain: StepExecutor = {
   name: 'math-brain',
   version: '1',
   async runStep(context) {
-    const model = createGateway().languageModel(MODEL_ID);
+    const model = agentModel(MODEL_FALLBACK);
     let verdict: StepVerdict | undefined;
     const compute = (name: string, body: () => number) =>
       context.budgets.runTool({ name, mutates: false }, async () => String(body()));
@@ -61,8 +62,8 @@ const mathBrain: StepExecutor = {
         context.budgets.recordModelCall({
           ...(usage.inputTokens === undefined ? {} : { inputTokens: usage.inputTokens }),
           ...(usage.outputTokens === undefined ? {} : { outputTokens: usage.outputTokens }),
-          provider: 'gateway',
-          modelId: MODEL_ID,
+          provider: model.provider,
+          modelId: model.modelId,
         }),
     });
     return (
