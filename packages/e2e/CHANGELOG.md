@@ -1,5 +1,17 @@
 # e2e
 
+## 0.22.0
+
+### Minor Changes
+
+- [`63b1823`](https://github.com/tester-army/e2e/commit/63b1823f1da5c8c245c74299d3285e3758e178a5) Thanks [@claude](https://github.com/claude)! - `claudeCode()` from `e2e/oauth/claude-code` runs agent steps, assertions, and `e2e explore` on a Claude plan through the Claude Code CLI on your machine: sign in by running `claude`, then set `model: claudeCode('sonnet')`. Each model call runs one `claude -p` process isolated from your Claude Code setup, its settings files, and a Claude Code session you run `e2e` from, with `ANTHROPIC_API_KEY` left out so the plan is what pays. The agent's tools come back as tool calls `e2e` runs itself, so secrets, budgets, and recording work as with any other model. Options: `effort` sets `--effort`, `env` adds variables, and `executable` names the CLI; `--workers` is how many CLI processes run at once. `opus[1m]` selects the 1M-token context.
+
+### Patch Changes
+
+- [#1216](https://github.com/tester-army/e2e/pull/1216) [`19f3ca2`](https://github.com/tester-army/e2e/commit/19f3ca2916cbfdd76589e3c68266a2d16887a041) Thanks [@okwasniewski](https://github.com/okwasniewski)! - The run telemetry event now sorts executed tests by how the replay cache carried them (`tests_code_only`, `tests_replayed`, `tests_assisted`, `tests_live`), counts `agent.act` steps that ran with the cache off (`agent_steps_uncached`), why steps missed the cache or handed off (`agent_miss_reasons`, `agent_handoff_reasons`), and the model calls by agent entry point (`model_calls_act`, `model_calls_assert`, `model_calls_extract`, `model_calls_waitfor`).
+
+- [#1209](https://github.com/tester-army/e2e/pull/1209) [`ef977f4`](https://github.com/tester-army/e2e/commit/ef977f4856da009cac26d78d2e9bb14e5991ee41) Thanks [@knowbody](https://github.com/knowbody)! - Engine disposal receives optional revocable permission to preserve run-owned resources for a replacement worker. Final shutdown, forced termination, and parent disconnect revoke that permission while disposal is pending. Each worker still invokes an engine's disposal hook one time. Missing permission requests final cleanup, including direct and standalone calls.
+
 ## 0.21.2
 
 ### Patch Changes
