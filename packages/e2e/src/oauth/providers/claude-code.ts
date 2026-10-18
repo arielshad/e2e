@@ -501,7 +501,7 @@ export function runCli(run: {
     const readLine = (line: string) => {
       const event = parseEvent(line);
       if (event?.['type'] === 'assistant') texts.push(...assistantText(event));
-      else if (event?.['type'] === 'result') result = event as unknown as CliResult;
+      else if (isCliResult(event)) result = event;
     };
     const onAbort = () => {
       child.kill();
@@ -554,6 +554,11 @@ function parseEvent(line: string): Record<string, unknown> | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** The CLI's last event; `subtype` is the one field every result carries. */
+function isCliResult(event: Record<string, unknown> | undefined): event is Record<string, unknown> & CliResult {
+  return event?.['type'] === 'result' && typeof event['subtype'] === 'string';
 }
 
 function assistantText(event: Record<string, unknown>): string[] {
